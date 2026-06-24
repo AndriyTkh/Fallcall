@@ -16,15 +16,18 @@ namespace OsuUnity.Visual
         // visuals
         private LineRenderer _body;
         private LineRenderer _border;
-        private SpriteRenderer _headBody, _headOverlay, _approach, _ball, _follow, _tail;
+        private SpriteRenderer _headBody, _headOverlay, _approach, _follow, _tail;
         private SpriteRenderer _revHead, _revTail;          // reverse arrows (skin only)
         private readonly List<SpriteRenderer> _tickDots = new List<SpriteRenderer>(); // sliderscorepoints
         private SkinNumber _number;
+        private Transform _numberAnchor;
         private Vector3 _headWorld;
 
         // state
         private bool _headJudged, _headHit, _tracking, _finalized;
         private double _resolveTime;
+        private double _headHitTime;
+        private const double InflateDuration = 150.0;       // ms, one-shot click pop
         private int _nestedTotal, _nestedHit;
         private int _nextTick, _nextRepeat;
 
@@ -52,10 +55,8 @@ namespace OsuUnity.Visual
             _approach = AddSprite(transform, SkinSprites.ApproachCircle, combo, dia, b + 3);
             _approach.transform.position = _headWorld;
 
-            _ball = AddSprite(transform, SkinSprites.SliderBall, BallTint(combo), dia * 0.9f, b + 4);
             _follow = AddSprite(transform, SkinSprites.SliderFollow, new Color(1, 1, 1, 0.5f),
                 ctx.FollowRadiusWorld * 2f, b + 2);
-            _ball.enabled = false;
             _follow.enabled = false;
 
             CreateNumber(ho.ComboNumber, b + 2);
@@ -108,13 +109,6 @@ namespace OsuUnity.Visual
             return Quaternion.Euler(0, 0, angle);
         }
 
-        /// <summary>Slider ball colour: tinted to the combo only when the skin opts in (AllowSliderBallTint).</summary>
-        private Color BallTint(Color combo)
-        {
-            if (Skin.Current == null) return combo * 0.6f;        // procedural fallback
-            return Skin.Current.Config.AllowSliderBallTint ? combo : Color.white;
-        }
-
         private void BuildBody(Color combo, int order)
         {
             // Track colour: skin override if present, else combo-tinted.
@@ -163,6 +157,7 @@ namespace OsuUnity.Visual
             var anchor = new GameObject("NumberAnchor");
             anchor.transform.SetParent(transform, false);
             anchor.transform.position = _headWorld;
+            _numberAnchor = anchor.transform;
             _number = new SkinNumber();
             _number.Build(anchor.transform, number, Ctx.RadiusWorld * 0.8f, order, Color.white);
         }
@@ -180,6 +175,8 @@ namespace OsuUnity.Visual
 
             if (time >= _slider.StartTime && time <= _slider.EndTime)
                 UpdateSliding(time);
+
+            if (_headHit) UpdateHeadAnim(time);
 
             if (time >= _slider.EndTime)
                 Finalize(time);
@@ -222,6 +219,7 @@ namespace OsuUnity.Visual
             if (hit)
             {
                 _headHit = true;
+                _headHitTime = time;
                 _tracking = true;
                 _nestedHit++;
                 Ctx.Score.Apply(Judgement.SliderTick, affectsCombo: true, affectsAccuracy: false);
@@ -236,9 +234,13 @@ namespace OsuUnity.Visual
         private void UpdateSliding(double time)
         {
             Vector3 ballPos = Ctx.Playfield.ToWorld(_slider.PositionAtTime((int)time));
-            _ball.enabled = true;
+
+            // The head circle itself travels the slider — no static copy left behind at the start.
+            _headBody.transform.position = ballPos;
+            _headOverlay.transform.position = ballPos;
+            if (_numberAnchor != null) _numberAnchor.position = ballPos;
+
             _follow.enabled = true;
-            _ball.transform.position = ballPos;
             _follow.transform.position = ballPos;
 
             _tracking = Ctx.Cursor.Held && Ctx.CursorWithin(ballPos, Ctx.FollowRadiusWorld);
@@ -312,7 +314,6 @@ namespace OsuUnity.Visual
 
             _finalized = true;
             _resolveTime = time;
-            _ball.enabled = false;
             _follow.enabled = false;
             if (_revHead != null) _revHead.enabled = false;
             if (_revTail != null) _revTail.enabled = false;
@@ -349,6 +350,19 @@ namespace OsuUnity.Visual
                 Object.CustomSampleIndex, Object.SampleVolume);
         }
 
+        /// <summary>Head-circle scale once hit: a one-shot inflate "pop" on click (same feel as a hit circle).</summary>
+        private void UpdateHeadAnim(double time)
+        {
+            float scale = 1f;
+
+            float pop = Mathf.Clamp01((float)((time - _headHitTime) / InflateDuration));
+            if (pop < 1f) scale += 0.25f * Mathf.Sin(pop * Mathf.PI);   // grow then settle
+
+            float dia = Ctx.RadiusWorld * 2f * scale;
+            _headBody.transform.localScale = Vector3.one * dia;
+            _headOverlay.transform.localScale = Vector3.one * dia;
+        }
+
         private void AnimateOut(double time)
         {
             float t = Mathf.Clamp01((float)((time - _resolveTime) / 220.0));
@@ -366,7 +380,8 @@ namespace OsuUnity.Visual
             foreach (var dot in _tickDots) SetAlpha(dot, a);
             SetLineAlpha(_body, 0.55f * a);
             SetLineAlpha(_border, 0.9f * a);
-            _number?.SetAlpha(a);
+            _number?.SetAlpha(_headHit ? 0f : a);   // number hidden once the head travels off
+            if (_numberAnchor != null) _numberAnchor.gameObject.SetActive(!_headHit);
         }
 
         private static void SetLineAlpha(LineRenderer lr, float a)
