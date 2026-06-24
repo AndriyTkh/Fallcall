@@ -68,24 +68,42 @@ namespace OsuUnity.Gameplay
 
         private void BuildScene(Texture2D background)
         {
-            // Playfield root.
+            // Playfield root, wrapped onto a cylinder for the first-person 3D view.
             var pfGo = new GameObject("Playfield");
             _playfield = pfGo.AddComponent<Playfield>();
-            _playfield.PixelScale = 0.01f;
 
-            // Camera: orthographic, looking at the playfield plane (+Z).
+            // Inspector tuning if an Osu3DSettings is present in the scene, otherwise built-in defaults.
+            var settings = Osu3DSettings.Find();
+            if (settings != null)
+            {
+                settings.ApplyTo(_playfield);
+            }
+            else
+            {
+                _playfield.PixelScale = 0.01f;
+                _playfield.Curved = true;
+                _playfield.ProjectionDistance = 3f; // wall distance from the player (smaller = more curve)
+                _playfield.ArcDegrees = 0f;         // 0 = natural round wrap; e.g. 120 spreads width over 120°
+            }
+
+            // Camera: perspective, sitting on the cylinder axis looking down +Z (first person).
             if (_cam == null) _cam = new GameObject("Main Camera").AddComponent<Camera>();
-            _cam.orthographic = true;
+            _cam.orthographic = false;
             float halfH = Playfield.Height * 0.5f * _playfield.PixelScale;
-            _cam.orthographicSize = halfH * 1.25f;
-            _cam.transform.position = new Vector3(0, 0, -10);
-            _cam.transform.rotation = Quaternion.identity;
-            _cam.clearFlags = CameraClearFlags.SolidColor;
-            _cam.backgroundColor = new Color(0.05f, 0.05f, 0.07f);
+            // Vertical FOV that frames the wall's height at the projection distance, with a little margin.
+            _cam.fieldOfView =
+                2f * Mathf.Atan(halfH * 1.15f / _playfield.ProjectionDistance) * Mathf.Rad2Deg;
+            _cam.transform.position = _playfield.transform.position; // on the axis
+            _cam.transform.rotation = _playfield.transform.rotation; // looking +Z toward the wall
+            _cam.clearFlags = CameraClearFlags.Skybox;               // show the skybox, not a flat colour
             _cam.nearClipPlane = 0.01f;
+            _cam.farClipPlane = Mathf.Max(1000f, _playfield.ProjectionDistance * 20f);
 
-            // Background sprite behind the playfield.
-            if (background != null) BuildBackground(background);
+            // First-person mouse-look: the player stands on the axis and looks around the wall.
+            var look = _cam.GetComponent<FirstPersonCamera>() ?? _cam.gameObject.AddComponent<FirstPersonCamera>();
+            look.enabled = true;
+            if (settings != null) look.Sensitivity = settings.LookSensitivity;
+            look.Init(_playfield.transform.rotation, _playfield.HalfArcDegrees, _playfield.HalfPitchDegrees);
 
             // Cursor.
             var cursorGo = new GameObject("Cursor");
@@ -98,23 +116,6 @@ namespace OsuUnity.Gameplay
             hsGo.transform.SetParent(transform, false);
             _hitSounds = hsGo.AddComponent<HitSoundPlayer>();
             _hitSounds.Init(_map);
-        }
-
-        private void BuildBackground(Texture2D tex)
-        {
-            var go = new GameObject("Background");
-            var sr = go.AddComponent<SpriteRenderer>();
-            sr.sprite = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), 100f);
-            sr.color = new Color(0.35f, 0.35f, 0.35f, 1f); // dimmed
-            sr.sortingOrder = -1000;
-            go.transform.position = new Vector3(0, 0, 5);
-
-            float worldH = tex.height / 100f;
-            float worldW = tex.width / 100f;
-            float targetH = _cam.orthographicSize * 2f;
-            float targetW = targetH * _cam.aspect;
-            float scale = Mathf.Max(targetH / worldH, targetW / worldW);
-            go.transform.localScale = Vector3.one * scale;
         }
 
         private void Update()
@@ -236,9 +237,15 @@ namespace OsuUnity.Gameplay
 
             DestroyIfExists("Playfield");
             DestroyIfExists("Cursor");
-            DestroyIfExists("Background");
             DestroyIfExists("HitSounds");
             if (_music != null) { _music.Stop(); Destroy(_music); }
+
+            // Drop first-person look so the mouse cursor unlocks for the menu.
+            if (_cam != null)
+            {
+                var look = _cam.GetComponent<FirstPersonCamera>();
+                if (look != null) Destroy(look);
+            }
         }
 
         private static void DestroyIfExists(string name)

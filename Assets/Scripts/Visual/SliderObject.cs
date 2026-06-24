@@ -46,14 +46,14 @@ namespace OsuUnity.Visual
             BuildBody(combo, b - 5);
 
             _tail = AddSprite(transform, SkinSprites.HitCircle, combo * 0.8f, dia, b - 4);
-            _tail.transform.position = WorldAt(1.0);
+            Place(_tail.transform, OsuAt(1.0));
 
             _headBody = AddSprite(transform, SkinSprites.HitCircle, combo, dia, b);
-            _headBody.transform.position = _headWorld;
+            Place(_headBody.transform, Object.Position);
             _headOverlay = AddSprite(transform, SkinSprites.HitCircleOverlay, Color.white, dia, b + 1);
-            _headOverlay.transform.position = _headWorld;
+            Place(_headOverlay.transform, Object.Position);
             _approach = AddSprite(transform, SkinSprites.ApproachCircle, combo, dia, b + 3);
-            _approach.transform.position = _headWorld;
+            Place(_approach.transform, Object.Position);
 
             _follow = AddSprite(transform, SkinSprites.SliderFollow, new Color(1, 1, 1, 0.5f),
                 ctx.FollowRadiusWorld * 2f, b + 2);
@@ -74,9 +74,9 @@ namespace OsuUnity.Visual
             float dotDia = Ctx.RadiusWorld * 0.5f;
             for (int i = 0; i < _slider.TickTimes.Count; i++)
             {
-                Vector3 p = Ctx.Playfield.ToWorld(_slider.PositionAtTime((int)_slider.TickTimes[i]));
+                Vector2 osu = _slider.PositionAtTime((int)_slider.TickTimes[i]);
                 var dot = AddSprite(transform, SkinSprites.SliderScorePoint, Color.white, dotDia, order);
-                dot.transform.position = p;
+                Place(dot.transform, osu);
                 _tickDots.Add(dot);
             }
         }
@@ -92,21 +92,22 @@ namespace OsuUnity.Visual
 
             // Tail arrow: after a bounce at the end, the ball heads back toward the head.
             _revTail = AddSprite(transform, SkinSprites.ReverseArrow, Color.white, dia, order);
-            _revTail.transform.position = WorldAt(1.0);
-            _revTail.transform.rotation = ArrowRotation(WorldAt(0.97) - WorldAt(1.0));
+            PlaceArrow(_revTail.transform, OsuAt(1.0), OsuAt(0.97) - OsuAt(1.0));
             _revTail.enabled = false;
 
             // Head arrow: after a bounce at the head, the ball heads back toward the end.
             _revHead = AddSprite(transform, SkinSprites.ReverseArrow, Color.white, dia, order);
-            _revHead.transform.position = _headWorld;
-            _revHead.transform.rotation = ArrowRotation(WorldAt(0.03) - _headWorld);
+            PlaceArrow(_revHead.transform, Object.Position, OsuAt(0.03) - Object.Position);
             _revHead.enabled = false;
         }
 
-        private static Quaternion ArrowRotation(Vector3 dir)
+        /// <summary>Place a reverse arrow at an osu point, oriented on the wall and aimed along an
+        /// osu-space travel direction (osu y is down, so its sign flips to the wall's up axis).</summary>
+        private void PlaceArrow(Transform t, Vector2 osuPos, Vector2 osuDir)
         {
-            float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
-            return Quaternion.Euler(0, 0, angle);
+            t.position = Ctx.Playfield.ToWorld(osuPos);
+            float angle = Mathf.Atan2(-osuDir.y, osuDir.x) * Mathf.Rad2Deg;
+            t.rotation = Ctx.Playfield.OrientationAt(osuPos) * Quaternion.Euler(0, 0, angle);
         }
 
         private void BuildBody(Color combo, int order)
@@ -149,14 +150,22 @@ namespace OsuUnity.Visual
             return lr;
         }
 
-        private Vector3 WorldAt(double progress) =>
-            Ctx.Playfield.ToWorld(Object.Position + _slider.Path.PositionAt(progress));
+        private Vector3 WorldAt(double progress) => Ctx.Playfield.ToWorld(OsuAt(progress));
+
+        private Vector2 OsuAt(double progress) => Object.Position + _slider.Path.PositionAt(progress);
+
+        /// <summary>Place a sprite on the wall at an osu coordinate and lay it flat against it (3D).</summary>
+        private void Place(Transform t, Vector2 osu)
+        {
+            t.position = Ctx.Playfield.ToWorld(osu);
+            t.rotation = Ctx.Playfield.OrientationAt(osu);
+        }
 
         private void CreateNumber(int number, int order)
         {
             var anchor = new GameObject("NumberAnchor");
             anchor.transform.SetParent(transform, false);
-            anchor.transform.position = _headWorld;
+            Place(anchor.transform, Object.Position);
             _numberAnchor = anchor.transform;
             _number = new SkinNumber();
             _number.Build(anchor.transform, number, Ctx.RadiusWorld * 0.8f, order, Color.white);
@@ -233,15 +242,17 @@ namespace OsuUnity.Visual
 
         private void UpdateSliding(double time)
         {
-            Vector3 ballPos = Ctx.Playfield.ToWorld(_slider.PositionAtTime((int)time));
+            Vector2 ballOsu = _slider.PositionAtTime((int)time);
+            Vector3 ballPos = Ctx.Playfield.ToWorld(ballOsu);
+            Quaternion ballRot = Ctx.Playfield.OrientationAt(ballOsu);
 
             // The head circle itself travels the slider — no static copy left behind at the start.
-            _headBody.transform.position = ballPos;
-            _headOverlay.transform.position = ballPos;
-            if (_numberAnchor != null) _numberAnchor.position = ballPos;
+            _headBody.transform.SetPositionAndRotation(ballPos, ballRot);
+            _headOverlay.transform.SetPositionAndRotation(ballPos, ballRot);
+            if (_numberAnchor != null) _numberAnchor.SetPositionAndRotation(ballPos, ballRot);
 
             _follow.enabled = true;
-            _follow.transform.position = ballPos;
+            _follow.transform.SetPositionAndRotation(ballPos, ballRot);
 
             _tracking = Ctx.Cursor.Held && Ctx.CursorWithin(ballPos, Ctx.FollowRadiusWorld);
             _follow.transform.localScale = Vector3.one *

@@ -25,6 +25,7 @@ namespace OsuUnity.Visual
             base.Init(ho, ctx);
             _worldPos = ctx.Playfield.ToWorld(ho.Position);
             transform.position = _worldPos;
+            transform.rotation = ctx.Playfield.OrientationAt(ho.Position); // lay flat on the wall (3D)
             _spawnTime = ho.StartTime - ctx.Preempt;
 
             Color combo = Ctx.ComboColour(Object.ComboColour);
