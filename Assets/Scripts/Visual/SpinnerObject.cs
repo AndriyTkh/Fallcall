@@ -1,5 +1,6 @@
 using OsuUnity.Beatmaps;
 using OsuUnity.Gameplay;
+using OsuUnity.Skinning;
 using UnityEngine;
 
 namespace OsuUnity.Visual
@@ -10,7 +11,9 @@ namespace OsuUnity.Visual
 
         private Spinner _spinner;
         private Vector3 _centre;
-        private SpriteRenderer _disc, _ring, _spin;
+        private SpriteRenderer _bg, _disc, _ring, _spin, _clear;
+        private SpriteRenderer _rotor; // the piece that visually spins
+        private float _bigDiameter;
         private TextMesh _info;
 
         private double _required;       // required full rotations
@@ -30,13 +33,50 @@ namespace OsuUnity.Visual
 
             int b = DepthOrder * 10;
             float big = ctx.Playfield.OsuToWorldDistance(Playfield.Height * 0.45f) * 2f;
+            _bigDiameter = big;
 
-            _disc = AddSprite(transform, Util.TextureFactory.Disc, new Color(0.1f, 0.1f, 0.15f, 0.5f), big, b);
-            _disc.transform.position = _centre;
-            _ring = AddSprite(transform, Util.TextureFactory.Ring, Color.white, big, b + 1);
+            // Optional skin background sits behind everything (aspect-preserved, scaled to fill height).
+            var bgSprite = SkinSprites.SpinnerBackground;
+            if (bgSprite != null)
+            {
+                float legacyH = bgSprite.rect.height / bgSprite.pixelsPerUnit;
+                float bgScale = (big * 1.2f) / Mathf.Max(0.0001f, legacyH);
+                _bg = AddSprite(transform, bgSprite, Color.white, bgScale, b - 1);
+                _bg.transform.position = _centre;
+            }
+
+            // Skin "spinner-circle" is the rotating body; the procedural fallback keeps a dark static
+            // disc with a separate spinning accent ring.
+            var circle = SkinSprites.SpinnerCircle;
+            if (circle != null)
+            {
+                _disc = AddSprite(transform, circle, Color.white, big, b);
+                _disc.transform.position = _centre;
+                _rotor = _disc;
+            }
+            else
+            {
+                _disc = AddSprite(transform, Util.TextureFactory.Disc, new Color(0.1f, 0.1f, 0.15f, 0.5f), big, b);
+                _disc.transform.position = _centre;
+                _spin = AddSprite(transform, Util.TextureFactory.Ring, new Color(1f, 0.8f, 0.2f), big * 0.5f, b + 2);
+                _spin.transform.position = _centre;
+                _rotor = _spin;
+            }
+
+            // Approach circle shrinks toward the centre as the spin completes.
+            _ring = AddSprite(transform, SkinSprites.SpinnerApproach ?? Util.TextureFactory.Ring, Color.white, big, b + 1);
             _ring.transform.position = _centre;
-            _spin = AddSprite(transform, Util.TextureFactory.Ring, new Color(1f, 0.8f, 0.2f), big * 0.5f, b + 2);
-            _spin.transform.position = _centre;
+
+            // "Cleared" flourish, revealed once the spin requirement is met.
+            var clearSprite = SkinSprites.SpinnerClear;
+            if (clearSprite != null)
+            {
+                float legacyH = clearSprite.rect.height / clearSprite.pixelsPerUnit;
+                float clearScale = (big * 0.3f) / Mathf.Max(0.0001f, legacyH);
+                _clear = AddSprite(transform, clearSprite, Color.white, clearScale, b + 4);
+                _clear.transform.position = _centre;
+                _clear.enabled = false;
+            }
 
             double seconds = (_spinner.EndTime - _spinner.StartTime) / 1000.0;
             _required = Mathf.Max(1f, (float)(DifficultyCalculator.SpinsPerSecond(ctx.Beatmap.Difficulty.OverallDifficulty) * seconds));
@@ -85,10 +125,11 @@ namespace OsuUnity.Visual
             {
                 AccumulateSpin(time);
                 float progress = Mathf.Clamp01((float)(_accumulated / _required));
-                float scale = Mathf.Lerp(1f, 0.15f, progress);
-                _ring.transform.localScale = _disc.transform.localScale * scale;
-                // visualise spin
-                _spin.transform.Rotate(0, 0, -200f * Time.deltaTime * (Ctx.Cursor.Held ? 2f : 1f));
+                // Approach circle shrinks from full size toward the centre as the spin fills.
+                _ring.transform.localScale = Vector3.one * (_bigDiameter * Mathf.Lerp(1f, 0.15f, progress));
+                // Spin the rotor (skin spinner-circle or the procedural accent ring).
+                _rotor.transform.Rotate(0, 0, -200f * Time.deltaTime * (Ctx.Cursor.Held ? 2f : 1f));
+                if (_clear != null && progress >= 1f) _clear.enabled = true;
                 if (_info != null) _info.text = $"{(int)(progress * 100)}%";
             }
             else
@@ -137,7 +178,9 @@ namespace OsuUnity.Visual
 
             Ctx.Score.Apply(result, affectsCombo: true, affectsAccuracy: true);
             Ctx.OnJudgement?.Invoke(result, _centre);
-            if (result != Judgement.Miss) Ctx.HitSounds.Play(Object.HitSound, _spinner.EndTime);
+            if (result != Judgement.Miss)
+                Ctx.HitSounds.Play(Object.HitSound, _spinner.EndTime,
+                    Object.SampleBank, Object.AdditionBank, Object.CustomSampleIndex, Object.SampleVolume);
         }
 
         private void AnimateOut(double time)
@@ -149,9 +192,11 @@ namespace OsuUnity.Visual
 
         private void SetGroupAlpha(float a)
         {
-            SetAlpha(_disc, a * 0.5f);
+            SetAlpha(_bg, a);
+            SetAlpha(_disc, _rotor == _disc ? a : a * 0.5f); // dark procedural disc stays translucent
             SetAlpha(_ring, a);
             SetAlpha(_spin, a);
+            SetAlpha(_clear, a);
             if (_info != null) { Color c = _info.color; c.a = a; _info.color = c; }
         }
     }

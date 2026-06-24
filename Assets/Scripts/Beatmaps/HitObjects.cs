@@ -29,6 +29,16 @@ namespace OsuUnity.Beatmaps
         Clap = 1 << 3     // 8
     }
 
+    /// <summary>osu! sample bank. Auto = inherit from the active timing point / beatmap default.</summary>
+    public enum SampleBank { Auto = 0, Normal = 1, Soft = 2, Drum = 3 }
+
+    /// <summary>Per-slider-edge sample banks parsed from the edgeSets field ("normal:addition").</summary>
+    public struct EdgeSampleSet
+    {
+        public SampleBank Normal;
+        public SampleBank Addition;
+    }
+
     public enum SliderCurveType
     {
         Catmull,
@@ -48,6 +58,20 @@ namespace OsuUnity.Beatmaps
 
         public HitObjectType Type;
         public HitSoundType HitSound;
+
+        // --- Hit sample addressing (from the trailing hitSample field). ---
+
+        /// <summary>Bank for the normal sound (Auto = inherit the timing point / beatmap default).</summary>
+        public SampleBank SampleBank;
+
+        /// <summary>Bank for additions (whistle/finish/clap); Auto = follow the resolved normal bank.</summary>
+        public SampleBank AdditionBank;
+
+        /// <summary>Custom sample index override (0 = inherit the timing point's index).</summary>
+        public int CustomSampleIndex;
+
+        /// <summary>Per-object volume override 1-100 (0 = inherit the timing point's volume).</summary>
+        public int SampleVolume;
 
         public bool IsNewCombo;
         public int ComboColourSkip;
@@ -81,6 +105,9 @@ namespace OsuUnity.Beatmaps
 
         /// <summary>Hit sound for each slider edge (head, repeats..., tail). May be empty.</summary>
         public List<HitSoundType> EdgeSounds = new List<HitSoundType>();
+
+        /// <summary>Sample banks for each slider edge, parallel to <see cref="EdgeSounds"/>. May be empty.</summary>
+        public List<EdgeSampleSet> EdgeSampleSets = new List<EdgeSampleSet>();
 
         // --- Computed during difficulty processing ---
 

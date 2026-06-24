@@ -97,7 +97,7 @@ namespace OsuUnity.Gameplay
             var hsGo = new GameObject("HitSounds");
             hsGo.transform.SetParent(transform, false);
             _hitSounds = hsGo.AddComponent<HitSoundPlayer>();
-            _hitSounds.Init();
+            _hitSounds.Init(_map);
         }
 
         private void BuildBackground(Texture2D tex)
@@ -275,7 +275,7 @@ namespace OsuUnity.Gameplay
             GUI.color = Color.white;
 
             GUI.Label(new Rect(20, Screen.height - 52, 600, 24),
-                "[Z]/[X] or click to hit   •   [R] restart   •   [Esc] menu", _style);
+                "[A]/[S]/[D] or click to hit   •   [R] restart   •   [Esc] menu", _style);
 
             if (_finished) DrawResults();
         }

@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using OsuUnity.Beatmaps;
 using OsuUnity.Gameplay;
+using OsuUnity.Skinning;
 using UnityEngine;
 
 namespace OsuUnity.Visual
@@ -14,8 +15,11 @@ namespace OsuUnity.Visual
 
         // visuals
         private LineRenderer _body;
-        private SpriteRenderer _headBody, _headBorder, _approach, _ball, _follow, _tail;
-        private TextMesh _number;
+        private LineRenderer _border;
+        private SpriteRenderer _headBody, _headOverlay, _approach, _ball, _follow, _tail;
+        private SpriteRenderer _revHead, _revTail;          // reverse arrows (skin only)
+        private readonly List<SpriteRenderer> _tickDots = new List<SpriteRenderer>(); // sliderscorepoints
+        private SkinNumber _number;
         private Vector3 _headWorld;
 
         // state
@@ -32,64 +36,123 @@ namespace OsuUnity.Visual
             transform.position = Vector3.zero;
             _spawnTime = ho.StartTime - ctx.Preempt;
 
-            Color combo = ComboColour();
+            Color combo = Ctx.ComboColour(Object.ComboColour);
             float dia = ctx.RadiusWorld * 2f;
             int b = DepthOrder * 10;
 
             BuildBody(combo, b - 5);
 
-            _tail = AddSprite(transform, Util.TextureFactory.Disc, combo * 0.8f, dia,
-                b - 4);
+            _tail = AddSprite(transform, SkinSprites.HitCircle, combo * 0.8f, dia, b - 4);
             _tail.transform.position = WorldAt(1.0);
 
-            _headBody = AddSprite(transform, Util.TextureFactory.Disc, combo, dia, b);
+            _headBody = AddSprite(transform, SkinSprites.HitCircle, combo, dia, b);
             _headBody.transform.position = _headWorld;
-            _headBorder = AddSprite(transform, Util.TextureFactory.Ring, Color.white, dia, b + 1);
-            _headBorder.transform.position = _headWorld;
-            _approach = AddSprite(transform, Util.TextureFactory.Ring, combo, dia, b + 3);
+            _headOverlay = AddSprite(transform, SkinSprites.HitCircleOverlay, Color.white, dia, b + 1);
+            _headOverlay.transform.position = _headWorld;
+            _approach = AddSprite(transform, SkinSprites.ApproachCircle, combo, dia, b + 3);
             _approach.transform.position = _headWorld;
 
-            _ball = AddSprite(transform, Util.TextureFactory.Disc, combo * 0.6f, dia * 0.9f, b + 4);
-            _follow = AddSprite(transform, Util.TextureFactory.SoftRing, new Color(1, 1, 1, 0.5f),
+            _ball = AddSprite(transform, SkinSprites.SliderBall, BallTint(combo), dia * 0.9f, b + 4);
+            _follow = AddSprite(transform, SkinSprites.SliderFollow, new Color(1, 1, 1, 0.5f),
                 ctx.FollowRadiusWorld * 2f, b + 2);
             _ball.enabled = false;
             _follow.enabled = false;
 
             CreateNumber(ho.ComboNumber, b + 2);
+            BuildScorePoints(b - 3);
+            BuildReverseArrows(combo, dia, b + 1);
 
             _nestedTotal = 1 + _slider.TickTimes.Count + (_slider.Slides - 1) + 1; // head + ticks + repeats + tail
             SetGroupAlpha(0f);
         }
 
-        private Color ComboColour()
+        /// <summary>Static dots marking each slider tick, collected (hidden) as the ball passes. Skin only.</summary>
+        private void BuildScorePoints(int order)
         {
-            var colours = Ctx.Beatmap.ComboColours;
-            if (colours.Count == 0) return new Color(0.4f, 0.6f, 0.9f);
-            return colours[Object.ComboColour % colours.Count];
+            if (Skin.Current == null || !Skin.Current.Has("sliderscorepoint")) return;
+            float dotDia = Ctx.RadiusWorld * 0.5f;
+            for (int i = 0; i < _slider.TickTimes.Count; i++)
+            {
+                Vector3 p = Ctx.Playfield.ToWorld(_slider.PositionAtTime((int)_slider.TickTimes[i]));
+                var dot = AddSprite(transform, SkinSprites.SliderScorePoint, Color.white, dotDia, order);
+                dot.transform.position = p;
+                _tickDots.Add(dot);
+            }
+        }
+
+        /// <summary>
+        /// Reverse arrows on the slider ends for repeats. Each points along the direction the ball
+        /// travels after it bounces off that end. Only the end of the next pending bounce is shown.
+        /// Skin only (procedural sliders never drew these).
+        /// </summary>
+        private void BuildReverseArrows(Color combo, float dia, int order)
+        {
+            if (_slider.Slides <= 1 || Skin.Current == null || !Skin.Current.Has("reversearrow")) return;
+
+            // Tail arrow: after a bounce at the end, the ball heads back toward the head.
+            _revTail = AddSprite(transform, SkinSprites.ReverseArrow, Color.white, dia, order);
+            _revTail.transform.position = WorldAt(1.0);
+            _revTail.transform.rotation = ArrowRotation(WorldAt(0.97) - WorldAt(1.0));
+            _revTail.enabled = false;
+
+            // Head arrow: after a bounce at the head, the ball heads back toward the end.
+            _revHead = AddSprite(transform, SkinSprites.ReverseArrow, Color.white, dia, order);
+            _revHead.transform.position = _headWorld;
+            _revHead.transform.rotation = ArrowRotation(WorldAt(0.03) - _headWorld);
+            _revHead.enabled = false;
+        }
+
+        private static Quaternion ArrowRotation(Vector3 dir)
+        {
+            float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
+            return Quaternion.Euler(0, 0, angle);
+        }
+
+        /// <summary>Slider ball colour: tinted to the combo only when the skin opts in (AllowSliderBallTint).</summary>
+        private Color BallTint(Color combo)
+        {
+            if (Skin.Current == null) return combo * 0.6f;        // procedural fallback
+            return Skin.Current.Config.AllowSliderBallTint ? combo : Color.white;
         }
 
         private void BuildBody(Color combo, int order)
         {
-            var go = new GameObject("SliderBody");
+            // Track colour: skin override if present, else combo-tinted.
+            Color track = Skin.Current?.Config.SliderTrackOverride ?? combo;
+            track.a = 0.55f;
+
+            // Optional outline drawn underneath a slightly narrower track.
+            Color? border = Skin.Current?.Config.SliderBorder;
+            if (border.HasValue)
+            {
+                _border = NewLine("SliderBorder", order, Ctx.RadiusWorld * 2f);
+                Color bc = border.Value; bc.a = 0.9f;
+                _border.startColor = _border.endColor = bc;
+            }
+
+            _body = NewLine("SliderBody", order + 1, Ctx.RadiusWorld * 2f * (border.HasValue ? 0.82f : 1f));
+            _body.startColor = _body.endColor = track;
+        }
+
+        private LineRenderer NewLine(string name, int order, float width)
+        {
+            var go = new GameObject(name);
             go.transform.SetParent(transform, false);
-            _body = go.AddComponent<LineRenderer>();
-            _body.useWorldSpace = true;
-            _body.alignment = LineAlignment.View;
-            _body.numCapVertices = 8;
-            _body.numCornerVertices = 4;
-            _body.textureMode = LineTextureMode.Stretch;
-            _body.material = Util.MaterialFactory.UnlitTransparent;
-            _body.widthMultiplier = Ctx.RadiusWorld * 2f;
-            _body.sortingOrder = order;
+            var lr = go.AddComponent<LineRenderer>();
+            lr.useWorldSpace = true;
+            lr.alignment = LineAlignment.View;
+            lr.numCapVertices = 8;
+            lr.numCornerVertices = 4;
+            lr.textureMode = LineTextureMode.Stretch;
+            lr.material = Util.MaterialFactory.UnlitTransparent;
+            lr.widthMultiplier = width;
+            lr.sortingOrder = order;
 
             var pts = _slider.Path.Points;
-            _body.positionCount = pts.Count;
+            lr.positionCount = pts.Count;
             for (int i = 0; i < pts.Count; i++)
-                _body.SetPosition(i, Ctx.Playfield.ToWorld(Object.Position + pts[i]));
-
-            Color body = combo;
-            body.a = 0.45f;
-            _body.startColor = _body.endColor = body;
+                lr.SetPosition(i, Ctx.Playfield.ToWorld(Object.Position + pts[i]));
+            return lr;
         }
 
         private Vector3 WorldAt(double progress) =>
@@ -97,20 +160,11 @@ namespace OsuUnity.Visual
 
         private void CreateNumber(int number, int order)
         {
-            var go = new GameObject("ComboNumber");
-            go.transform.SetParent(transform, false);
-            go.transform.position = _headWorld + new Vector3(0, 0, -0.001f);
-            _number = go.AddComponent<TextMesh>();
-            _number.text = number.ToString();
-            _number.anchor = TextAnchor.MiddleCenter;
-            _number.alignment = TextAlignment.Center;
-            _number.fontSize = 64;
-            _number.color = Color.white;
-            _number.font = VisualResources.NumberFont;
-            _number.characterSize = Ctx.RadiusWorld * 0.045f;
-            var mr = go.GetComponent<MeshRenderer>();
-            mr.sharedMaterial = _number.font.material;
-            mr.sortingOrder = order;
+            var anchor = new GameObject("NumberAnchor");
+            anchor.transform.SetParent(transform, false);
+            anchor.transform.position = _headWorld;
+            _number = new SkinNumber();
+            _number.Build(anchor.transform, number, Ctx.RadiusWorld * 0.8f, order, Color.white);
         }
 
         public override void Tick(double time, bool isFront)
@@ -122,6 +176,7 @@ namespace OsuUnity.Visual
             SetGroupAlpha(fadeT);
 
             HandleHead(time, isFront, fadeT);
+            UpdateReverseArrows();
 
             if (time >= _slider.StartTime && time <= _slider.EndTime)
                 UpdateSliding(time);
@@ -170,7 +225,7 @@ namespace OsuUnity.Visual
                 _tracking = true;
                 _nestedHit++;
                 Ctx.Score.Apply(Judgement.SliderTick, affectsCombo: true, affectsAccuracy: false);
-                Ctx.HitSounds.Play(EdgeSound(0), _slider.StartTime);
+                PlayEdge(0, _slider.StartTime);
             }
             else
             {
@@ -194,11 +249,13 @@ namespace OsuUnity.Visual
             // Slider ticks.
             while (_nextTick < _slider.TickTimes.Count && _slider.TickTimes[_nextTick] <= time)
             {
+                if (_nextTick < _tickDots.Count) _tickDots[_nextTick].enabled = false; // collected
                 if (_tracking)
                 {
                     _nestedHit++;
                     Ctx.Score.Apply(Judgement.SliderTick, affectsCombo: true, affectsAccuracy: false);
-                    Ctx.HitSounds.PlayTick();
+                    Ctx.HitSounds.PlayTick(_slider.TickTimes[_nextTick], Object.SampleBank,
+                        Object.CustomSampleIndex, Object.SampleVolume);
                 }
                 else
                 {
@@ -216,7 +273,7 @@ namespace OsuUnity.Visual
                 {
                     _nestedHit++;
                     Ctx.Score.Apply(Judgement.SliderTick, affectsCombo: true, affectsAccuracy: false);
-                    Ctx.HitSounds.Play(EdgeSound(_nextRepeat + 1), (int)repeatTime);
+                    PlayEdge(_nextRepeat + 1, (int)repeatTime);
                 }
                 else
                 {
@@ -236,7 +293,7 @@ namespace OsuUnity.Visual
             {
                 _nestedHit++;
                 Ctx.Score.Apply(Judgement.SliderTick, affectsCombo: true, affectsAccuracy: false);
-                Ctx.HitSounds.Play(EdgeSound(_slider.Slides), _slider.EndTime);
+                PlayEdge(_slider.Slides, _slider.EndTime);
             }
             else
             {
@@ -257,6 +314,18 @@ namespace OsuUnity.Visual
             _resolveTime = time;
             _ball.enabled = false;
             _follow.enabled = false;
+            if (_revHead != null) _revHead.enabled = false;
+            if (_revTail != null) _revTail.enabled = false;
+        }
+
+        /// <summary>Show the reverse arrow on whichever end the next pending bounce occurs at.</summary>
+        private void UpdateReverseArrows()
+        {
+            if (_revHead == null && _revTail == null) return;
+            bool remaining = (_slider.Slides - 1) - _nextRepeat > 0;
+            bool bounceAtTail = (_nextRepeat % 2) == 0; // first bounce is at the far end
+            if (_revTail != null) _revTail.enabled = remaining && bounceAtTail;
+            if (_revHead != null) _revHead.enabled = remaining && !bounceAtTail;
         }
 
         private HitSoundType EdgeSound(int index)
@@ -266,32 +335,45 @@ namespace OsuUnity.Visual
             return Object.HitSound;
         }
 
+        /// <summary>Play a slider edge, using its own sample banks when the edgeSets field supplied them.</summary>
+        private void PlayEdge(int index, int timeMs)
+        {
+            SampleBank normal = Object.SampleBank, addition = Object.AdditionBank;
+            if (_slider.EdgeSampleSets != null && index < _slider.EdgeSampleSets.Count)
+            {
+                var es = _slider.EdgeSampleSets[index];
+                if (es.Normal != SampleBank.Auto) normal = es.Normal;
+                if (es.Addition != SampleBank.Auto) addition = es.Addition;
+            }
+            Ctx.HitSounds.Play(EdgeSound(index), timeMs, normal, addition,
+                Object.CustomSampleIndex, Object.SampleVolume);
+        }
+
         private void AnimateOut(double time)
         {
             float t = Mathf.Clamp01((float)((time - _resolveTime) / 220.0));
             SetGroupAlpha(1f - t);
-            if (_body != null)
-            {
-                Color c = _body.startColor; c.a = 0.45f * (1f - t);
-                _body.startColor = _body.endColor = c;
-            }
             if (t >= 1f) Finished = true;
         }
 
         private void SetGroupAlpha(float a)
         {
             SetAlpha(_headBody, a * 0.85f);
-            SetAlpha(_headBorder, a);
+            SetAlpha(_headOverlay, a);
             SetAlpha(_tail, a * 0.6f);
-            if (_body != null)
-            {
-                Color c = _body.startColor; c.a = 0.45f * a;
-                _body.startColor = _body.endColor = c;
-            }
-            if (_number != null)
-            {
-                Color c = _number.color; c.a = a; _number.color = c;
-            }
+            SetAlpha(_revHead, a);
+            SetAlpha(_revTail, a);
+            foreach (var dot in _tickDots) SetAlpha(dot, a);
+            SetLineAlpha(_body, 0.55f * a);
+            SetLineAlpha(_border, 0.9f * a);
+            _number?.SetAlpha(a);
+        }
+
+        private static void SetLineAlpha(LineRenderer lr, float a)
+        {
+            if (lr == null) return;
+            Color c = lr.startColor; c.a = a;
+            lr.startColor = lr.endColor = c;
         }
     }
 }

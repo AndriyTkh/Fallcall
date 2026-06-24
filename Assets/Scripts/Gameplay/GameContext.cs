@@ -49,6 +49,19 @@ namespace OsuUnity.Gameplay
             return Judgement.Miss;
         }
 
+        /// <summary>
+        /// Combo colour for the given index: the beatmap's own palette if it has one, otherwise the
+        /// active skin's palette, otherwise a built-in default.
+        /// </summary>
+        public Color ComboColour(int index)
+        {
+            var list = Beatmap.ComboColours.Count > 0
+                ? Beatmap.ComboColours
+                : Skinning.Skin.Current?.Config.ComboColours;
+            if (list == null || list.Count == 0) return new Color(0.9f, 0.4f, 0.5f);
+            return list[index % list.Count];
+        }
+
         public bool CursorWithin(Vector3 worldCentre, float radiusWorld)
         {
             Vector3 c = Cursor.WorldPosition;

@@ -221,6 +221,10 @@ namespace OsuUnity.Beatmaps
             ho.IsNewCombo = newCombo;
             ho.ComboColourSkip = comboSkip;
 
+            // The hitSample field is always last; its index depends on the object kind.
+            int sampleIdx = ho is Slider ? 10 : ho is Spinner ? 6 : 5;
+            if (p.Length > sampleIdx) ParseHitSample(ho, p[sampleIdx]);
+
             map.HitObjects.Add(ho);
         }
 
@@ -252,7 +256,32 @@ namespace OsuUnity.Beatmaps
                     if (int.TryParse(s, out int v)) slider.EdgeSounds.Add((HitSoundType)v);
             }
 
+            // p[9] = edge sample banks "normalSet:additionSet|..." e.g. "0:0|2:1"
+            if (p.Length > 9)
+            {
+                foreach (string e in p[9].Split('|'))
+                {
+                    string[] ns = e.Split(':');
+                    slider.EdgeSampleSets.Add(new EdgeSampleSet
+                    {
+                        Normal = ns.Length > 0 ? (SampleBank)ParseInt(ns[0]) : SampleBank.Auto,
+                        Addition = ns.Length > 1 ? (SampleBank)ParseInt(ns[1]) : SampleBank.Auto,
+                    });
+                }
+            }
+
             return slider;
+        }
+
+        /// <summary>Parse a hitSample field "normalSet:additionSet:index:volume:filename".</summary>
+        private static void ParseHitSample(HitObject ho, string field)
+        {
+            string[] s = field.Split(':');
+            if (s.Length > 0) ho.SampleBank = (SampleBank)ParseInt(s[0]);
+            if (s.Length > 1) ho.AdditionBank = (SampleBank)ParseInt(s[1]);
+            if (s.Length > 2) ho.CustomSampleIndex = ParseInt(s[2]);
+            if (s.Length > 3) ho.SampleVolume = ParseInt(s[3]);
+            // s[4] = explicit per-object filename override (rare) — not supported.
         }
 
         private static SliderCurveType ParseCurveType(string s)

@@ -2,6 +2,8 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using OsuUnity.Beatmaps;
+using OsuUnity.Skinning;
+using OsuUnity.Util;
 using UnityEngine;
 
 namespace OsuUnity.Gameplay
@@ -45,6 +47,9 @@ namespace OsuUnity.Gameplay
         private IEnumerator Scan()
         {
             _state = State.Scanning;
+            yield return null;
+
+            LoadSkin();
             yield return null;
 
             string osz = FindFirstOsz();
@@ -146,6 +151,59 @@ namespace OsuUnity.Gameplay
         }
 
         // ----------------------------------------------------------------- discovery
+
+        // ----------------------------------------------------------------- skin
+
+        private void LoadSkin()
+        {
+            if (Skin.Current != null) return; // already loaded this session
+
+            // A loose folder containing skin.ini wins (lets users drop an unpacked skin in).
+            string folder = FindSkinFolder();
+
+            // Otherwise extract the first .osk archive (a renamed .zip) we can find.
+            if (folder == null)
+            {
+                string osk = FindFirst("*.osk");
+                if (osk != null) folder = ArchiveExtractor.Extract(osk, "osu_skins");
+            }
+
+            if (folder != null) Skin.Current = Skin.Load(folder);
+        }
+
+        private static string FindSkinFolder()
+        {
+            foreach (string root in CandidateRoots())
+            {
+                if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) continue;
+                try
+                {
+                    var inis = Directory.GetFiles(root, "skin.ini", SearchOption.AllDirectories);
+                    if (inis.Length > 0)
+                    {
+                        System.Array.Sort(inis);
+                        return Path.GetDirectoryName(inis[0]);
+                    }
+                }
+                catch { /* skip unreadable roots */ }
+            }
+            return null;
+        }
+
+        private static string FindFirst(string pattern)
+        {
+            foreach (string root in CandidateRoots())
+            {
+                if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) continue;
+                try
+                {
+                    var files = Directory.GetFiles(root, pattern, SearchOption.AllDirectories);
+                    if (files.Length > 0) { System.Array.Sort(files); return files[0]; }
+                }
+                catch { /* skip unreadable roots */ }
+            }
+            return null;
+        }
 
         private static string FindFirstOsz()
         {

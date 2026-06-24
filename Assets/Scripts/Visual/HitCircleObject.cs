@@ -1,5 +1,6 @@
 using OsuUnity.Beatmaps;
 using OsuUnity.Gameplay;
+using OsuUnity.Skinning;
 using UnityEngine;
 
 namespace OsuUnity.Visual
@@ -9,10 +10,9 @@ namespace OsuUnity.Visual
         public int DepthOrder;
 
         private SpriteRenderer _body;
-        private SpriteRenderer _border;
+        private SpriteRenderer _overlay;
         private SpriteRenderer _approach;
-        private TextMesh _number;
-        private MeshRenderer _numberRenderer;
+        private SkinNumber _number;
 
         private double _spawnTime;
         private bool _resolved;
@@ -27,43 +27,23 @@ namespace OsuUnity.Visual
             transform.position = _worldPos;
             _spawnTime = ho.StartTime - ctx.Preempt;
 
-            Color combo = ComboColour();
+            Color combo = Ctx.ComboColour(Object.ComboColour);
             float dia = ctx.RadiusWorld * 2f;
             int b = DepthOrder * 10;
 
-            _body = AddSprite(transform, Util.TextureFactory.Disc, combo, dia, b);
-            _border = AddSprite(transform, Util.TextureFactory.Ring, Color.white, dia, b + 1);
-            _approach = AddSprite(transform, Util.TextureFactory.Ring, combo, dia, b + 3);
+            // osu! layering: hit circle (combo-tinted), overlay (untinted) and the combo number, with
+            // the overlay either above or below the number per HitCircleOverlayAboveNumber.
+            bool overlayAbove = Skin.Current?.Config.HitCircleOverlayAboveNumber ?? true;
+            int numberOrder = overlayAbove ? b + 1 : b + 2;
+            int overlayOrder = overlayAbove ? b + 2 : b + 1;
 
-            CreateNumber(ho.ComboNumber, b + 2, ctx.RadiusWorld);
+            _body = AddSprite(transform, SkinSprites.HitCircle, combo, dia, b);
+            _overlay = AddSprite(transform, SkinSprites.HitCircleOverlay, Color.white, dia, overlayOrder);
+            _approach = AddSprite(transform, SkinSprites.ApproachCircle, combo, dia, b + 3);
+
+            _number = new SkinNumber();
+            _number.Build(transform, ho.ComboNumber, ctx.RadiusWorld * 0.8f, numberOrder, Color.white);
             SetGroupAlpha(0f);
-        }
-
-        private Color ComboColour()
-        {
-            var colours = Ctx.Beatmap.ComboColours;
-            if (colours.Count == 0) return new Color(0.9f, 0.4f, 0.5f);
-            return colours[Object.ComboColour % colours.Count];
-        }
-
-        private void CreateNumber(int number, int order, float radiusWorld)
-        {
-            var go = new GameObject("ComboNumber");
-            go.transform.SetParent(transform, false);
-            go.transform.localPosition = new Vector3(0, 0, -0.001f);
-
-            _number = go.AddComponent<TextMesh>();
-            _number.text = number.ToString();
-            _number.anchor = TextAnchor.MiddleCenter;
-            _number.alignment = TextAlignment.Center;
-            _number.fontSize = 64;
-            _number.color = Color.white;
-            _number.font = VisualResources.NumberFont;
-            _number.characterSize = radiusWorld * 0.045f;
-
-            _numberRenderer = go.GetComponent<MeshRenderer>();
-            _numberRenderer.sharedMaterial = _number.font.material;
-            _numberRenderer.sortingOrder = order;
         }
 
         public override void Tick(double time, bool isFront)
@@ -113,7 +93,8 @@ namespace OsuUnity.Visual
             Ctx.OnJudgement?.Invoke(j, _worldPos);
 
             if (j != Judgement.Miss)
-                Ctx.HitSounds.Play(Object.HitSound, Object.StartTime);
+                Ctx.HitSounds.Play(Object.HitSound, Object.StartTime,
+                    Object.SampleBank, Object.AdditionBank, Object.CustomSampleIndex, Object.SampleVolume);
 
             if (_approach != null) _approach.enabled = false;
         }
@@ -131,7 +112,7 @@ namespace OsuUnity.Visual
             {
                 float scale = 1f + 0.4f * t;
                 _body.transform.localScale = Vector3.one * (Ctx.RadiusWorld * 2f * scale);
-                _border.transform.localScale = _body.transform.localScale;
+                _overlay.transform.localScale = _body.transform.localScale;
                 SetGroupAlpha(1f - t);
             }
 
@@ -141,13 +122,8 @@ namespace OsuUnity.Visual
         private void SetGroupAlpha(float a)
         {
             SetAlpha(_body, a * 0.85f);
-            SetAlpha(_border, a);
-            if (_number != null)
-            {
-                Color c = _number.color;
-                c.a = a;
-                _number.color = c;
-            }
+            SetAlpha(_overlay, a);
+            _number?.SetAlpha(a);
         }
     }
 }

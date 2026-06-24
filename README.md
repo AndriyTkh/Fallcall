@@ -24,7 +24,7 @@ automatically. To add your own, drop any `.osz` into one of:
 
 | Action | Key |
 | --- | --- |
-| Hit / hold | **Z**, **X**, or left/right mouse button |
+| Hit / hold | **A**, **S**, **D**, or left/right mouse button |
 | Aim | mouse |
 | Restart | **R** |
 | Back to song select | **Esc** |
@@ -68,7 +68,7 @@ Assets/Scripts/
     Playfield.cs            #   osu! coords <-> 3D world mapping (rotatable for future 3D work)
     CursorController.cs     #   mouse->plane raycast + tap input
     ScoreProcessor.cs       #   score / combo / accuracy / HP
-    HitSoundPlayer.cs       #   procedurally synthesized hit sounds
+    HitSoundPlayer.cs       #   skin/beatmap hit samples (bank+index+volume) w/ synth fallback
   Visual/
     DrawableHitObject.cs    #   base class for on-screen objects
     HitCircleObject.cs
