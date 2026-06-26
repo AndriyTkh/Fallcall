@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -19,7 +20,6 @@ namespace OsuUnity.Gameplay
         private State _state = State.Scanning;
 
         private readonly List<BeatmapEntry> _entries = new List<BeatmapEntry>();
-        private string _setName = "";
         private string _statusText = "Scanning for beatmaps...";
         private Vector2 _scroll;
         private GUIStyle _title, _label, _button;
@@ -28,6 +28,7 @@ namespace OsuUnity.Gameplay
         private struct BeatmapEntry
         {
             public string Path;
+            public string SetName;
             public string Artist;
             public string Title;
             public string Version;
@@ -52,34 +53,38 @@ namespace OsuUnity.Gameplay
             LoadSkin();
             yield return null;
 
-            string osz = FindFirstOsz();
-            if (osz == null)
+            var oszFiles = FindAllOsz();
+            if (oszFiles.Count == 0)
             {
-                _statusText = "No .osz found.\nPlace a beatmap in the Assets folder, StreamingAssets,\n" +
+                _statusText = "No .osz found.\nPlace beatmaps in StreamingAssets, the Assets folder,\n" +
                               "or the persistent data folder, then press Play again.";
                 _state = State.Menu;
                 yield break;
             }
 
-            _setName = Path.GetFileNameWithoutExtension(osz);
-            _statusText = "Extracting " + _setName + " ...";
-            yield return null;
-
-            string folder = OszImporter.Extract(osz);
-            foreach (string osuPath in OszImporter.FindOsuFiles(folder))
+            foreach (string osz in oszFiles)
             {
-                var meta = QuickMeta(osuPath);
-                if (meta.Mode != 0) continue; // standard mode only for now
-                _entries.Add(new BeatmapEntry
+                string setName = Path.GetFileNameWithoutExtension(osz);
+                _statusText = "Extracting " + setName + " ...";
+                yield return null;
+
+                string folder = OszImporter.Extract(osz);
+                foreach (string osuPath in OszImporter.FindOsuFiles(folder))
                 {
-                    Path = osuPath,
-                    Artist = meta.Artist,
-                    Title = meta.Title,
-                    Version = meta.Version
-                });
+                    var meta = QuickMeta(osuPath);
+                    if (meta.Mode != 0) continue; // standard mode only for now
+                    _entries.Add(new BeatmapEntry
+                    {
+                        Path = osuPath,
+                        SetName = setName,
+                        Artist = meta.Artist,
+                        Title = meta.Title,
+                        Version = meta.Version
+                    });
+                }
             }
 
-            _statusText = _entries.Count == 0 ? "No osu!standard difficulties found in this set." : "";
+            _statusText = _entries.Count == 0 ? "No osu!standard difficulties found." : "";
             _state = State.Menu;
         }
 
@@ -205,23 +210,22 @@ namespace OsuUnity.Gameplay
             return null;
         }
 
-        private static string FindFirstOsz()
+        private static List<string> FindAllOsz()
         {
+            var found = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (string root in CandidateRoots())
             {
                 if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) continue;
                 try
                 {
-                    var files = Directory.GetFiles(root, "*.osz", SearchOption.AllDirectories);
-                    if (files.Length > 0)
-                    {
-                        System.Array.Sort(files);
-                        return files[0];
-                    }
+                    foreach (string file in Directory.GetFiles(root, "*.osz", SearchOption.AllDirectories))
+                        if (seen.Add(Path.GetFullPath(file))) found.Add(file);
                 }
                 catch { /* skip unreadable roots */ }
             }
-            return null;
+            found.Sort(StringComparer.OrdinalIgnoreCase);
+            return found;
         }
 
         private static IEnumerable<string> CandidateRoots()
@@ -255,9 +259,6 @@ namespace OsuUnity.Gameplay
 
             GUI.Label(new Rect(40, 30, Screen.width - 80, 44), "osu! 3D — Song Select", _title);
 
-            if (!string.IsNullOrEmpty(_setName))
-                GUI.Label(new Rect(40, 78, Screen.width - 80, 26), "Set: " + _setName, _label);
-
             if (_state == State.Scanning || _state == State.Loading || _entries.Count == 0)
             {
                 GUI.Label(new Rect(40, 130, Screen.width - 80, 200), _statusText, _label);
@@ -270,7 +271,7 @@ namespace OsuUnity.Gameplay
             for (int i = 0; i < _entries.Count; i++)
             {
                 var e = _entries[i];
-                string label = $"  {e.Artist} - {e.Title}\n  [{e.Version}]";
+                string label = $"  {e.Artist} - {e.Title}  [{e.Version}]\n  {e.SetName}";
                 if (GUI.Button(new Rect(0, i * 56, content.width, 50), label, _button))
                     Select(e);
             }

@@ -13,6 +13,10 @@ namespace OsuUnity.Gameplay
         private double _dspSongStart;   // dsp time at which song time == 0
         private bool _scheduled;
         private bool _audioStarted;
+        private bool _paused;
+        private double _pausedTime;     // song time captured at pause
+
+        public bool IsPaused => _paused;
 
         public double LeadInMs { get; private set; }
 
@@ -27,6 +31,7 @@ namespace OsuUnity.Gameplay
             LeadInMs = Mathf.Max(1000f, (float)leadInMs); // always give at least 1s of approach
             _scheduled = false;
             _audioStarted = false;
+            _paused = false;
             Finished = false;
             TimeMs = -LeadInMs;
         }
@@ -42,9 +47,39 @@ namespace OsuUnity.Gameplay
             }
         }
 
+        /// <summary>Freeze the clock and the audio. Time stops advancing until <see cref="Resume"/>.</summary>
+        public void Pause()
+        {
+            if (_paused) return;
+            _paused = true;
+            _pausedTime = TimeMs;
+            if (_source != null && _source.isPlaying) _source.Pause();
+        }
+
+        /// <summary>Resume from the paused position, re-anchoring the dsp clock so time stays in sync.</summary>
+        public void Resume()
+        {
+            if (!_paused) return;
+            _paused = false;
+            _dspSongStart = AudioSettings.dspTime - _pausedTime / 1000.0;
+
+            if (_audioStarted)
+            {
+                if (_source != null) _source.UnPause();
+            }
+            else if (_source != null && _source.clip != null)
+            {
+                // Paused during lead-in: audio never started, so reschedule its start.
+                _source.Stop();
+                _source.PlayScheduled(_dspSongStart);
+                _scheduled = true;
+            }
+        }
+
         /// <summary>Call every frame.</summary>
         public void Update()
         {
+            if (_paused) return;
             double now = AudioSettings.dspTime;
             TimeMs = (now - _dspSongStart) * 1000.0;
 

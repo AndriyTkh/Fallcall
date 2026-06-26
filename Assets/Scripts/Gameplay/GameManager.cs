@@ -30,19 +30,22 @@ namespace OsuUnity.Gameplay
         private bool _running;
         private bool _finished;
         private bool _started;
-        private GUIStyle _style, _bigStyle, _centerStyle;
+        private bool _paused;
+        private GUIStyle _style, _bigStyle, _centerStyle, _menuLabel;
 
         public void StartGame(Beatmap map, AudioClip music, Texture2D background, Camera cam)
         {
             _map = map;
             _cam = cam != null ? cam : Camera.main;
 
+            GameSettings.Load(Osu3DSettings.Find());
+
             BuildScene(background);
 
             _music = gameObject.AddComponent<AudioSource>();
             _music.playOnAwake = false;
             _music.clip = music;
-            _music.volume = 0.6f;
+            _music.volume = GameSettings.MusicVolume;
 
             _score = new ScoreProcessor();
             _score.Configure(map.Difficulty.HPDrainRate);
@@ -72,19 +75,12 @@ namespace OsuUnity.Gameplay
             var pfGo = new GameObject("Playfield");
             _playfield = pfGo.AddComponent<Playfield>();
 
-            // Inspector tuning if an Osu3DSettings is present in the scene, otherwise built-in defaults.
-            var settings = Osu3DSettings.Find();
-            if (settings != null)
-            {
-                settings.ApplyTo(_playfield);
-            }
-            else
-            {
-                _playfield.PixelScale = 0.01f;
-                _playfield.Curved = true;
-                _playfield.ProjectionDistance = 3f; // wall distance from the player (smaller = more curve)
-                _playfield.ArcDegrees = 0f;         // 0 = natural round wrap; e.g. 120 spreads width over 120°
-            }
+            // Tuning comes from GameSettings (seeded from an Osu3DSettings in the scene or built-in
+            // defaults, then overridden by saved values and the pause-menu sliders).
+            _playfield.PixelScale = GameSettings.PixelScale;
+            _playfield.Curved = GameSettings.Curved;
+            _playfield.ProjectionDistance = GameSettings.ProjectionDistance;
+            _playfield.ArcDegrees = GameSettings.ArcDegrees;
 
             // Camera: perspective, sitting on the cylinder axis looking down +Z (first person).
             if (_cam == null) _cam = new GameObject("Main Camera").AddComponent<Camera>();
@@ -102,7 +98,7 @@ namespace OsuUnity.Gameplay
             // First-person mouse-look: the player stands on the axis and looks around the wall.
             var look = _cam.GetComponent<FirstPersonCamera>() ?? _cam.gameObject.AddComponent<FirstPersonCamera>();
             look.enabled = true;
-            if (settings != null) look.Sensitivity = settings.LookSensitivity;
+            look.Sensitivity = GameSettings.LookSensitivity;
             look.Init(_playfield.transform.rotation, _playfield.HalfArcDegrees, _playfield.HalfPitchDegrees);
 
             // Cursor.
@@ -115,6 +111,7 @@ namespace OsuUnity.Gameplay
             var hsGo = new GameObject("HitSounds");
             hsGo.transform.SetParent(transform, false);
             _hitSounds = hsGo.AddComponent<HitSoundPlayer>();
+            _hitSounds.Volume = GameSettings.HitSoundVolume;
             _hitSounds.Init(_map);
         }
 
@@ -122,10 +119,15 @@ namespace OsuUnity.Gameplay
         {
             if (!_started) return;
 
-            if (Input.GetKeyDown(KeyCode.Escape)) { Cleanup(); OnExitToMenu?.Invoke(); return; }
+            if (Input.GetKeyDown(KeyCode.Escape))
+            {
+                if (_finished) { ExitToMenu(); return; }
+                TogglePause();
+                return;
+            }
             if (Input.GetKeyDown(KeyCode.R)) { Restart(); return; }
 
-            if (!_running) return;
+            if (!_running || _paused) return;
 
             _clock.Update();
             double time = _clock.TimeMs;
@@ -214,8 +216,31 @@ namespace OsuUnity.Gameplay
             FloatingText.Spawn(j, worldPos, _ctx.RadiusWorld * 0.03f, 20000, _cam);
         }
 
+        private void TogglePause()
+        {
+            _paused = !_paused;
+            if (_paused) { _clock.Pause(); SetLook(false); }
+            else { GameSettings.Save(); _clock.Resume(); SetLook(true); }
+        }
+
+        // Enable/disable first-person look; disabling also unlocks the mouse for the menu (see OnDisable).
+        private void SetLook(bool on)
+        {
+            if (_cam == null) return;
+            var look = _cam.GetComponent<FirstPersonCamera>();
+            if (look != null) look.enabled = on;
+        }
+
+        private void ExitToMenu()
+        {
+            GameSettings.Save();
+            Cleanup();
+            OnExitToMenu?.Invoke();
+        }
+
         private void Restart()
         {
+            GameSettings.Save(); // persist any pause-menu tuning before rebuilding with it
             var map = _map;
             var clip = _music != null ? _music.clip : null;
             Texture2D bg = null;
@@ -233,6 +258,7 @@ namespace OsuUnity.Gameplay
             _running = false;
             _started = false;
             _finished = false;
+            _paused = false;
             _spawnIndex = 0;
 
             DestroyIfExists("Playfield");
@@ -263,6 +289,8 @@ namespace OsuUnity.Gameplay
             _style.normal.textColor = Color.white;
             _bigStyle = new GUIStyle(_style) { fontSize = 40 };
             _centerStyle = new GUIStyle(_style) { fontSize = 30, alignment = TextAnchor.MiddleCenter };
+            _menuLabel = new GUIStyle(GUI.skin.label) { fontSize = 16 };
+            _menuLabel.normal.textColor = Color.white;
         }
 
         private void OnGUI()
@@ -282,9 +310,75 @@ namespace OsuUnity.Gameplay
             GUI.color = Color.white;
 
             GUI.Label(new Rect(20, Screen.height - 52, 600, 24),
-                "[A]/[S]/[D] or click to hit   •   [R] restart   •   [Esc] menu", _style);
+                "[A]/[S]/[D] or click to hit   •   [R] restart   •   [Esc] pause", _style);
 
             if (_finished) DrawResults();
+            else if (_paused) DrawPauseMenu();
+        }
+
+        private void DrawPauseMenu()
+        {
+            // Dim the playfield.
+            GUI.color = new Color(0, 0, 0, 0.75f);
+            GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), Texture2D.whiteTexture);
+            GUI.color = Color.white;
+
+            float bw = 460, bh = 560;
+            var r = new Rect((Screen.width - bw) / 2, (Screen.height - bh) / 2, bw, bh);
+            GUI.color = new Color(0, 0, 0, 0.85f);
+            GUI.DrawTexture(r, Texture2D.whiteTexture);
+            GUI.color = Color.white;
+
+            GUI.Label(new Rect(r.x, r.y + 16, bw, 40), "Paused", _centerStyle);
+
+            float x = r.x + 40, w = bw - 80, y = r.y + 70;
+
+            // --- audio + input ---
+            GameSettings.MusicVolume = Slider("Music volume", GameSettings.MusicVolume, 0f, 1f, "0%", 100f, x, w, ref y);
+            GameSettings.HitSoundVolume = Slider("Hit sound volume", GameSettings.HitSoundVolume, 0f, 1f, "0%", 100f, x, w, ref y);
+            GameSettings.LookSensitivity = Slider("Look sensitivity", GameSettings.LookSensitivity, 0.5f, 10f, "0.0", 1f, x, w, ref y);
+
+            // Audio + sensitivity apply live.
+            if (_music != null) _music.volume = GameSettings.MusicVolume;
+            if (_hitSounds != null) _hitSounds.Volume = GameSettings.HitSoundVolume;
+            var look = _cam != null ? _cam.GetComponent<FirstPersonCamera>() : null;
+            if (look != null) look.Sensitivity = GameSettings.LookSensitivity;
+
+            y += 8;
+            GUI.Label(new Rect(x, y, w, 22), "Playfield (applied on restart)", _menuLabel); y += 26;
+            GameSettings.Curved = GUI.Toggle(new Rect(x, y, w, 24), GameSettings.Curved, "  Curved (3D wall)"); y += 30;
+            GameSettings.PixelScale = Slider("Scale", GameSettings.PixelScale, 0.002f, 0.05f, "0.000", 1f, x, w, ref y);
+            GameSettings.ProjectionDistance = Slider("Distance", GameSettings.ProjectionDistance, 0.5f, 12f, "0.0", 1f, x, w, ref y);
+            GameSettings.ArcDegrees = Slider("Arc°", GameSettings.ArcDegrees, -300f, 300f, "0", 1f, x, w, ref y);
+
+            y += 4;
+            if (GUI.Button(new Rect(x, y, w, 30), "Reset to defaults"))
+            {
+                GameSettings.Reset();
+                // Apply live ones immediately so the menu reflects the reset.
+                if (_music != null) _music.volume = GameSettings.MusicVolume;
+                if (_hitSounds != null) _hitSounds.Volume = GameSettings.HitSoundVolume;
+                if (look != null) look.Sensitivity = GameSettings.LookSensitivity;
+            }
+
+            // --- buttons ---
+            float by = r.y + bh - 52;
+            float third = (w - 16) / 3f;
+            if (GUI.Button(new Rect(x, by, third, 36), "Resume")) TogglePause();
+            if (GUI.Button(new Rect(x + third + 8, by, third, 36), "Restart")) Restart();
+            if (GUI.Button(new Rect(x + 2 * (third + 8), by, third, 36), "Song Select")) ExitToMenu();
+        }
+
+        // Labeled horizontal slider; returns the new value. Advances y by one row.
+        private float Slider(string label, float value, float min, float max,
+                             string fmt, float displayMul, float x, float w, ref float y)
+        {
+            GUI.Label(new Rect(x, y, w - 70, 22), label, _menuLabel);
+            GUI.Label(new Rect(x + w - 70, y, 70, 22), (value * displayMul).ToString(fmt), _menuLabel);
+            y += 22;
+            value = GUI.HorizontalSlider(new Rect(x, y + 4, w, 18), value, min, max);
+            y += 30;
+            return value;
         }
 
         private void DrawResults()
@@ -306,11 +400,7 @@ namespace OsuUnity.Gameplay
             Line($"   {_score.Count300} / {_score.Count100} / {_score.Count50} / {_score.CountMiss}");
 
             if (GUI.Button(new Rect(r.x + 40, r.y + bh - 56, 180, 36), "Retry [R]")) Restart();
-            if (GUI.Button(new Rect(r.x + bw - 220, r.y + bh - 56, 180, 36), "Menu [Esc]"))
-            {
-                Cleanup();
-                OnExitToMenu?.Invoke();
-            }
+            if (GUI.Button(new Rect(r.x + bw - 220, r.y + bh - 56, 180, 36), "Menu [Esc]")) ExitToMenu();
         }
     }
 }
