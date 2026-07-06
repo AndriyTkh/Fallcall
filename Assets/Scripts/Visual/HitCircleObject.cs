@@ -3,6 +3,7 @@ using OsuUnity.Gameplay;
 using OsuUnity.Skinning;
 using UnityEngine;
 
+// INDEX: Drawable hit circle — body/overlay/approach-circle/combo-number, judgement + fade animation.
 namespace OsuUnity.Visual
 {
     public sealed class HitCircleObject : DrawableHitObject

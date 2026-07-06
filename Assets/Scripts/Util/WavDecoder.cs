@@ -1,5 +1,6 @@
 using UnityEngine;
 
+// INDEX: Minimal RIFF/WAVE PCM decoder (raw bytes to AudioClip) bypassing Unity's FMOD loader.
 namespace OsuUnity.Util
 {
     /// <summary>

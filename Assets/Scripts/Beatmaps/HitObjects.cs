@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
+// INDEX: Hit-object model + type/hitsound bitfields — HitObject base and Circle/Slider/Spinner classes.
 namespace OsuUnity.Beatmaps
 {
     /// <summary>

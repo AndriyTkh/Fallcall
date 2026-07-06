@@ -3,6 +3,7 @@ using OsuUnity.Gameplay;
 using OsuUnity.Skinning;
 using UnityEngine;
 
+// INDEX: Drawable spinner — spinning rotor, rotation accumulation, progress ring and clear flash.
 namespace OsuUnity.Visual
 {
     public sealed class SpinnerObject : DrawableHitObject

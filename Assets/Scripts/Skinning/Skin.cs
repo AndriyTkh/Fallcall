@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 
+// INDEX: A loaded osu! skin — folder of named .png elements + parsed skin.ini, with lazy @2x textures.
 namespace OsuUnity.Skinning
 {
     /// <summary>

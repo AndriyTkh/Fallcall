@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
+// INDEX: Parsed .osu data model — General/Metadata/Difficulty/Events sections plus the hit-object list.
 namespace OsuUnity.Beatmaps
 {
     public sealed class GeneralSection

@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using OsuUnity.Visual;
 using UnityEngine;
 
+// INDEX: Renders a run of digits (combo numbers) with the skin's number font; TextMesh fallback.
 namespace OsuUnity.Skinning
 {
     /// <summary>

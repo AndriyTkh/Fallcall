@@ -4,6 +4,7 @@ using OsuUnity.Gameplay;
 using OsuUnity.Skinning;
 using UnityEngine;
 
+// INDEX: Drawable slider — body/border line, head, follow circle, ticks, reverse arrows, ball tracking.
 namespace OsuUnity.Visual
 {
     public sealed class SliderObject : DrawableHitObject

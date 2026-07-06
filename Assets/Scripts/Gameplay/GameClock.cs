@@ -1,5 +1,6 @@
 using UnityEngine;
 
+// INDEX: Audio-synced clock (dspTime) reporting song time in ms, with lead-in and pause support.
 namespace OsuUnity.Gameplay
 {
     /// <summary>
