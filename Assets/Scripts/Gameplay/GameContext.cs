@@ -24,6 +24,11 @@ namespace OsuUnity.Gameplay
         /// <summary>Follow-circle radius for sliders (osu! uses ~2.4x the circle radius).</summary>
         public float FollowRadiusWorld => RadiusWorld * 2.4f;
 
+        /// <summary>Extra hit-test radius from <see cref="GameSettings.CursorHitboxOsu"/>. 0 by default
+        /// (faithful point-in-circle); added on top of the circle radius at the head hit-test call
+        /// sites only — slider follow-tracking leniency is untouched.</summary>
+        public float CursorHitboxWorld;
+
         /// <summary>Raised when an object is judged so the HUD can pop a result up.</summary>
         public Action<Judgement, Vector3> OnJudgement;
 
@@ -33,6 +38,7 @@ namespace OsuUnity.Gameplay
             var d = map.Difficulty;
             RadiusOsu = DifficultyCalculator.CircleRadius(d.CircleSize);
             RadiusWorld = Playfield.OsuToWorldDistance(RadiusOsu);
+            CursorHitboxWorld = Playfield.OsuToWorldDistance(GameSettings.CursorHitboxOsu);
             Preempt = DifficultyCalculator.Preempt(d.ApproachRate);
             FadeIn = DifficultyCalculator.FadeIn(d.ApproachRate);
             Hit300 = DifficultyCalculator.Hit300Window(d.OverallDifficulty);
@@ -62,11 +68,17 @@ namespace OsuUnity.Gameplay
             return list[index % list.Count];
         }
 
-        public bool CursorWithin(Vector3 worldCentre, float radiusWorld)
+        public bool CursorWithin(Vector3 worldCentre, float radiusWorld) =>
+            CursorWithin(worldCentre, radiusWorld, 0f);
+
+        /// <summary><paramref name="extraWorld"/> is additive leniency (e.g. <see cref="CursorHitboxWorld"/>)
+        /// on top of the base radius — kept as a separate overload so follow-circle tracking, which must
+        /// stay on <see cref="FollowRadiusWorld"/> alone, isn't affected by the hitbox setting.</summary>
+        public bool CursorWithin(Vector3 worldCentre, float radiusWorld, float extraWorld)
         {
             Vector3 c = Cursor.WorldPosition;
-            // Compare on the playfield plane.
-            return (c - worldCentre).sqrMagnitude <= radiusWorld * radiusWorld;
+            float r = radiusWorld + extraWorld;
+            return (c - worldCentre).sqrMagnitude <= r * r;
         }
     }
 }

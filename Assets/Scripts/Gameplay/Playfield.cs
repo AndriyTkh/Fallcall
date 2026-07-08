@@ -7,57 +7,59 @@ namespace OsuUnity.Gameplay
     ///
     /// Two modes:
     ///  • Flat   — the classic 2D plane on this transform's local XY (orthographic camera).
-    ///  • Curved — the playfield is wrapped onto the inner wall of a vertical cylinder whose axis
-    ///             runs through this transform. A first-person (perspective) camera sits on that axis
-    ///             looking down +Z, so the player stands inside the playfield and looks at the wall.
+    ///  • Curved — the playfield is wrapped onto a <b>sphere chunk</b> centred on this transform. A
+    ///             first-person (perspective) camera sits at the sphere centre and looks out at the
+    ///             chunk, so the player stands inside the playfield and looks around it.
     ///
-    /// The cylinder projection is pure math (trig), no raycasts: an osu x maps to an angle around the
-    /// axis, an osu y maps to a height up the wall, and the surface point is placed at the configured
-    /// radius. Because every drawable already routes its positions through <see cref="ToWorld"/>, the
-    /// whole game curves with no gameplay changes — drawables only additionally rotate their sprites
-    /// flat against the wall via <see cref="OrientationAt"/>.
+    /// The sphere projection is pure math (trig), no raycasts: an osu x maps to a yaw angle around the
+    /// vertical axis, an osu y maps to a pitch angle, and the surface point is placed at the configured
+    /// radius (<see cref="ProjectionDistance"/>). The playfield spans <see cref="ChunkHDegrees"/> ×
+    /// <see cref="ChunkVDegrees"/> of the sphere (≈120°×90° by default — see STRUCTURE §2/§3a). Because
+    /// every drawable already routes its positions through <see cref="ToWorld"/>, the whole game curves
+    /// with no gameplay changes — drawables only additionally rotate their sprites to face the camera
+    /// via <see cref="OrientationAt"/>.
+    ///
+    /// "Radius as a parameter": a larger radius pushes the projection surface out (a bigger warped
+    /// screen) but does NOT change the chunk's angular size — the playfield always covers the same
+    /// ChunkH×ChunkV degrees, so at large radius seeing the whole chunk means moving the camera.
     /// </summary>
     public sealed class Playfield : MonoBehaviour
     {
         public const float Width = 512f;
         public const float Height = 384f;
 
-        /// <summary>World units per osu! pixel (controls circle / vertical scale on the wall).</summary>
+        /// <summary>World units per osu! pixel (controls circle size in flat mode / on-surface scale).</summary>
         public float PixelScale = 0.01f;
 
         // ----------------------------------------------------------------- 3D projection
 
-        /// <summary>Wrap the playfield onto a cylinder wall and view it in first person.</summary>
+        /// <summary>Wrap the playfield onto a sphere chunk and view it in first person.</summary>
         public bool Curved = false;
 
         /// <summary>
-        /// Cylinder radius in world units = distance from the camera/axis to the projected wall.
-        /// This is the "projection distance": larger pushes the wall away (flatter, less curve).
+        /// Sphere radius in world units = distance from the camera/centre to the projected surface.
+        /// This is the "projection distance": larger pushes the surface away (a bigger warped screen)
+        /// without changing the chunk's angular size.
         /// </summary>
         public float ProjectionDistance = 3f;
 
         /// <summary>
-        /// Horizontal stretch: the angle (degrees) the full playfield width (512) is spread across the
-        /// cylinder. e.g. 120 wraps the playfield onto a third of the cylinder. 0 = "natural" arc-length
-        /// wrapping where on-wall horizontal scale matches <see cref="PixelScale"/> (round circles).
-        /// Negative values mirror the playfield horizontally. Increasing the magnitude past natural
-        /// spreads the pattern wider around the player.
+        /// Horizontal chunk span: degrees of the sphere the full playfield width (512) is wrapped across.
+        /// ≈120° by default. Negative values mirror the playfield horizontally.
         /// </summary>
-        public float ArcDegrees = 0f;
+        public float ChunkHDegrees = 120f;
 
-        /// <summary>True when an explicit arc stretch is set (0 means natural arc-length wrap).</summary>
-        private bool ExplicitArc => Mathf.Abs(ArcDegrees) > Mathf.Epsilon;
+        /// <summary>
+        /// Vertical chunk span: degrees of the sphere the full playfield height (384) is wrapped across.
+        /// ≈90° by default. (120×90 keeps roughly round circles, matching osu!'s 4:3 field.)
+        /// </summary>
+        public float ChunkVDegrees = 90f;
 
-        /// <summary>Angle (radians) around the axis for the given osu x (0 = dead ahead, +Z).</summary>
-        private float AngleAt(float osuX)
-        {
-            float dx = osuX - Width * 0.5f;
-            if (ExplicitArc)
-                return (dx / Width) * ArcDegrees * Mathf.Deg2Rad; // explicit stretch (negative = mirrored)
-            return dx * PixelScale / ProjectionDistance;           // natural arc-length wrap
-        }
+        /// <summary>A chunk span can't be zero (degenerate projection); clamp to a small floor.</summary>
+        private float SafeH => Mathf.Abs(ChunkHDegrees) < 1f ? Mathf.Sign(ChunkHDegrees == 0f ? 1f : ChunkHDegrees) : ChunkHDegrees;
+        private float SafeV => Mathf.Abs(ChunkVDegrees) < 1f ? 1f : ChunkVDegrees;
 
-        /// <summary>Convert an osu! coordinate to a world position (flat plane or cylinder wall).</summary>
+        /// <summary>Convert an osu! coordinate to a world position (flat plane or sphere surface).</summary>
         public Vector3 ToWorld(Vector2 osu, float depth = 0f)
         {
             if (!Curved)
@@ -73,13 +75,15 @@ namespace OsuUnity.Gameplay
             return transform.TransformPoint(LocalPoint(osu, depth));
         }
 
-        /// <summary>The cylinder-wall surface point for an osu coordinate, in this transform's local space.</summary>
+        /// <summary>The sphere-surface point for an osu coordinate, in this transform's local space.</summary>
         private Vector3 LocalPoint(Vector2 osu, float depth)
         {
-            float theta = AngleAt(osu.x);
-            float height = -(osu.y - Height * 0.5f) * PixelScale;   // up the wall (flip osu y)
-            float r = ProjectionDistance - depth;                   // depth pushes toward the axis
-            return new Vector3(r * Mathf.Sin(theta), height, r * Mathf.Cos(theta));
+            // yaw about the up axis (+ = right), pitch (+ = up, so flip osu y). Equirectangular wrap.
+            float yaw = (osu.x - Width * 0.5f) / Width * SafeH * Mathf.Deg2Rad;
+            float pitch = -(osu.y - Height * 0.5f) / Height * SafeV * Mathf.Deg2Rad;
+            float r = ProjectionDistance - depth;                     // depth pushes toward the centre
+            float cp = Mathf.Cos(pitch);
+            return new Vector3(r * cp * Mathf.Sin(yaw), r * Mathf.Sin(pitch), r * cp * Mathf.Cos(yaw));
         }
 
         /// <summary>Convert a world position back into osu! coordinates.</summary>
@@ -93,48 +97,55 @@ namespace OsuUnity.Gameplay
                     -local.y / PixelScale + Height * 0.5f);
             }
 
-            float theta = Mathf.Atan2(local.x, local.z);            // angle from +Z
-            float x;
-            if (ExplicitArc)
-                x = theta / (ArcDegrees * Mathf.Deg2Rad) * Width + Width * 0.5f;
-            else
-                x = theta * ProjectionDistance / PixelScale + Width * 0.5f;
-            float y = -local.y / PixelScale + Height * 0.5f;
+            Vector3 dir = local.normalized;
+            float yaw = Mathf.Atan2(dir.x, dir.z);                    // angle from +Z about up
+            float pitch = Mathf.Asin(Mathf.Clamp(dir.y, -1f, 1f));
+            float x = yaw / (SafeH * Mathf.Deg2Rad) * Width + Width * 0.5f;
+            float y = -pitch / (SafeV * Mathf.Deg2Rad) * Height + Height * 0.5f;
             return new Vector2(x, y);
         }
 
         /// <summary>
-        /// Rotation that makes a sprite face the camera (which sits on the cylinder axis). The sprite's
-        /// front points straight at the axis in full 3D — so it billboards toward the camera position
-        /// rather than lying tangent to the wall. Because the camera only rotates (never leaves the
-        /// axis), this is stable per-object and needs no per-frame update. Identity in flat mode.
+        /// Rotation that makes a sprite face the camera (which sits at the sphere centre). The sprite's
+        /// front points straight at the centre in full 3D — so it billboards toward the camera position
+        /// (full camera-align). Because the camera only rotates (never leaves the centre), this is stable
+        /// per-object and needs no per-frame update. Identity in flat mode.
         /// </summary>
         public Quaternion OrientationAt(Vector2 osu)
         {
             if (!Curved) return transform.rotation;
-            // Direction from the camera (axis origin) out to the surface point; sprite's back faces this.
+            // Direction from the camera (centre) out to the surface point; sprite's back faces this.
             Vector3 dirOut = LocalPoint(osu, 0f).normalized;
             return transform.rotation * Quaternion.LookRotation(dirOut, Vector3.up);
         }
 
         public Quaternion OrientationAt(float osuX) => OrientationAt(new Vector2(osuX, Height * 0.5f));
 
-        /// <summary>Half the horizontal angular extent of the wall (degrees from centre to an edge).</summary>
-        public float HalfArcDegrees
+        /// <summary>
+        /// Intersect a ray with the projection sphere and return the outer surface point (the one in
+        /// front of a camera at the centre). Pure quadratic — no Physics raycast. Used by the cursor to
+        /// find where the player is looking. Assumes <paramref name="ray"/>.direction is normalised.
+        /// </summary>
+        public bool RaycastSurface(Ray ray, out Vector3 hit)
         {
-            get
-            {
-                if (!Curved) return 0f;
-                float theta = ExplicitArc
-                    ? 0.5f * Mathf.Abs(ArcDegrees) * Mathf.Deg2Rad   // magnitude (sign only mirrors)
-                    : (Width * 0.5f) * PixelScale / ProjectionDistance;
-                return theta * Mathf.Rad2Deg;
-            }
+            hit = default;
+            Vector3 o = ray.origin - transform.position;
+            float R = ProjectionDistance;
+            float b = Vector3.Dot(o, ray.direction);
+            float c = Vector3.Dot(o, o) - R * R;
+            float disc = b * b - c;
+            if (disc < 0f) return false;
+            float t = -b + Mathf.Sqrt(disc);                          // far root: surface in front of centre
+            if (t <= 0f) return false;
+            hit = ray.origin + t * ray.direction;
+            return true;
         }
 
-        /// <summary>Half the vertical angular extent of the wall (degrees from centre to top/bottom).</summary>
-        public float HalfPitchDegrees =>
-            Curved ? Mathf.Atan((Height * 0.5f * PixelScale) / ProjectionDistance) * Mathf.Rad2Deg : 0f;
+        /// <summary>Half the horizontal angular extent of the chunk (degrees from centre to an edge).</summary>
+        public float HalfArcDegrees => Curved ? 0.5f * Mathf.Abs(ChunkHDegrees) : 0f;
+
+        /// <summary>Half the vertical angular extent of the chunk (degrees from centre to top/bottom).</summary>
+        public float HalfPitchDegrees => Curved ? 0.5f * Mathf.Abs(ChunkVDegrees) : 0f;
 
         /// <summary>Plane the (flat) playfield lies on, in world space (for cursor raycasting).</summary>
         public Plane WorldPlane => new Plane(-transform.forward, transform.position);

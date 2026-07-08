@@ -111,36 +111,6 @@ namespace OsuUnity.Gameplay
             }
         }
 
-        /// <summary>
-        /// Intersect a ray with the playfield cylinder (axis = playfield up, radius = projection
-        /// distance). Pure quadratic — no Physics raycast. Returns the forward (outer) hit, which is
-        /// the wall the camera on the axis looks at.
-        /// </summary>
-        private bool IntersectCylinder(Ray ray, out Vector3 hit)
-        {
-            hit = default;
-            Vector3 axis = Playfield.transform.up;
-            float R = Playfield.ProjectionDistance;
-
-            // Components of origin/direction perpendicular to the axis (project the axis out).
-            Vector3 o = ray.origin - Playfield.transform.position;
-            Vector3 d = ray.direction;
-            Vector3 oP = o - Vector3.Dot(o, axis) * axis;
-            Vector3 dP = d - Vector3.Dot(d, axis) * axis;
-
-            float a = Vector3.Dot(dP, dP);
-            if (a < 1e-8f) return false;                 // looking straight along the axis
-            float b = 2f * Vector3.Dot(oP, dP);
-            float c = Vector3.Dot(oP, oP) - R * R;
-            float disc = b * b - 4f * a * c;
-            if (disc < 0f) return false;
-
-            float t = (-b + Mathf.Sqrt(disc)) / (2f * a); // outer root: the wall in front of the camera
-            if (t <= 0f) return false;
-            hit = ray.origin + t * d;
-            return true;
-        }
-
         private void Update()
         {
             if (Camera == null || Playfield == null) return;
@@ -149,7 +119,7 @@ namespace OsuUnity.Gameplay
             {
                 // First person: aim is wherever the camera looks, so the cursor rides the screen centre.
                 Ray ray = Camera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
-                if (IntersectCylinder(ray, out Vector3 hit))
+                if (Playfield.RaycastSurface(ray, out Vector3 hit))
                 {
                     WorldPosition = hit;
                     OsuPosition = Playfield.ToOsu(hit);

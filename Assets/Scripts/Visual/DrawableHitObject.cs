@@ -26,6 +26,13 @@ namespace OsuUnity.Visual
         /// <param name="isFront">true if this is the front-most un-judged object (note lock).</param>
         public abstract void Tick(double time, bool isFront);
 
+        /// <summary>
+        /// Re-place this object under the current <see cref="Playfield"/> projection. Called when the view
+        /// mode switches mid-map (see <see cref="Gameplay.ViewModeController"/>) so already-spawned objects
+        /// follow the new projection. Base is a no-op; subclasses that cache world positions override it.
+        /// </summary>
+        public virtual void Reproject() { }
+
         protected static SpriteRenderer AddSprite(Transform parent, Sprite sprite, Color colour,
             float diameter, int order)
         {

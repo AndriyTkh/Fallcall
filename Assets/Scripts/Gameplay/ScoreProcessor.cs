@@ -11,7 +11,7 @@ namespace OsuUnity.Gameplay
         Great = 300,
         // Slider/spinner sub-results that don't carry the full circle accuracy weight:
         SliderTick = 10,
-        SpinnerBonus = 100
+        SpinnerBonus = 1000
     }
 
     /// <summary>Tracks score, combo, accuracy and HP. Accuracy uses the standard osu! weighting.</summary>

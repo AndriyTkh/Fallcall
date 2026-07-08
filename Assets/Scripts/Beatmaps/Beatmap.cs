@@ -59,6 +59,12 @@ namespace OsuUnity.Beatmaps
 
         public string BackgroundFile;
 
+        /// <summary>Background video filename (osu! "Video" event), relative to <see cref="Directory"/>.</summary>
+        public string VideoFile;
+
+        /// <summary>Video start offset in ms, relative to song time (osu! "Video" event's first field).</summary>
+        public int VideoOffset;
+
         /// <summary>Absolute filesystem path of the .osu file this beatmap came from (if any).</summary>
         public string SourcePath;
 
@@ -88,6 +94,13 @@ namespace OsuUnity.Beatmaps
                 if (tp.Time > time) break;
             }
             return result;
+        }
+
+        /// <summary>Whether kiai time ("hyper" mode) is active at <paramref name="time"/> (ms).</summary>
+        public bool IsKiaiAt(int time)
+        {
+            var tp = GetTimingPointAt(time);
+            return tp != null && tp.Kiai;
         }
 
         public string DisplayTitle =>

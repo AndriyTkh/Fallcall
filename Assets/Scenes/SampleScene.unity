@@ -338,8 +338,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   Curved: 1
-  PixelScale: 0.01
-  ProjectionDistance: 5
+  PixelScale: 0.0135
+  ProjectionDistance: 3.5
   ArcDegrees: 0
   LookSensitivity: 1.4
 --- !u!4 &1333260612

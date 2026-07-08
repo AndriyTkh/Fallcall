@@ -1,4 +1,3 @@
-using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -7,32 +6,24 @@ using OsuUnity.Skinning;
 using OsuUnity.Util;
 using UnityEngine;
 
+// INDEX: Entry point — loads skin, scans BeatmapLibrary, drives SongSelectUI, then hands off to GameManager.
 namespace OsuUnity.Gameplay
 {
     /// <summary>
-    /// Entry point. Finds .osz beatmaps, shows a difficulty picker, loads the chosen map's audio and
-    /// background, then hands off to <see cref="GameManager"/>. Spawns itself automatically on play
-    /// so no scene wiring is required — just press Play.
+    /// Entry point. Loads a skin, scans <see cref="BeatmapLibrary"/>, shows the osu!lazer-style
+    /// song select (<see cref="SongSelectUI"/>), loads the chosen difficulty's audio/background,
+    /// then hands off to <see cref="GameManager"/>. Spawns itself automatically on play so no
+    /// scene wiring is required — just press Play.
     /// </summary>
     public sealed class Bootstrap : MonoBehaviour
     {
         private enum State { Scanning, Menu, Loading, Playing }
         private State _state = State.Scanning;
 
-        private readonly List<BeatmapEntry> _entries = new List<BeatmapEntry>();
         private string _statusText = "Scanning for beatmaps...";
-        private Vector2 _scroll;
-        private GUIStyle _title, _label, _button;
+        private GUIStyle _label;
         private GameManager _game;
-
-        private struct BeatmapEntry
-        {
-            public string Path;
-            public string SetName;
-            public string Artist;
-            public string Title;
-            public string Version;
-        }
+        private SongSelectUI _songSelect;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void AutoStart()
@@ -43,7 +34,12 @@ namespace OsuUnity.Gameplay
             go.AddComponent<Bootstrap>();
         }
 
-        private void Start() => StartCoroutine(Scan());
+        private void Start()
+        {
+            _songSelect = gameObject.AddComponent<SongSelectUI>();
+            _songSelect.PlaySelected += Select;
+            StartCoroutine(Scan());
+        }
 
         private IEnumerator Scan()
         {
@@ -53,73 +49,36 @@ namespace OsuUnity.Gameplay
             LoadSkin();
             yield return null;
 
-            var oszFiles = FindAllOsz();
-            if (oszFiles.Count == 0)
-            {
-                _statusText = "No .osz found.\nPlace beatmaps in StreamingAssets, the Assets folder,\n" +
-                              "or the persistent data folder, then press Play again.";
-                _state = State.Menu;
-                yield break;
-            }
-
-            foreach (string osz in oszFiles)
-            {
-                string setName = Path.GetFileNameWithoutExtension(osz);
-                _statusText = "Extracting " + setName + " ...";
-                yield return null;
-
-                string folder = OszImporter.Extract(osz);
-                foreach (string osuPath in OszImporter.FindOsuFiles(folder))
-                {
-                    var meta = QuickMeta(osuPath);
-                    if (meta.Mode != 0) continue; // standard mode only for now
-                    _entries.Add(new BeatmapEntry
-                    {
-                        Path = osuPath,
-                        SetName = setName,
-                        Artist = meta.Artist,
-                        Title = meta.Title,
-                        Version = meta.Version
-                    });
-                }
-            }
-
-            _statusText = _entries.Count == 0 ? "No osu!standard difficulties found." : "";
+            List<BeatmapSetInfo> sets = BeatmapLibrary.Scan();
+            _songSelect.Populate(sets);
             _state = State.Menu;
+            _songSelect.Show();
         }
 
-        // --- lightweight header scan for the menu (avoids fully processing every difficulty) ---
-        private struct Meta { public string Artist, Title, Version; public int Mode; }
-
-        private Meta QuickMeta(string path)
+        private void Select(BeatmapSetInfo set, BeatmapDifficultyInfo diff)
         {
-            var m = new Meta { Artist = "", Title = "", Version = Path.GetFileNameWithoutExtension(path) };
+            Debug.Log($"[Bootstrap] PlaySelected: {set.SetName} [{diff.Version}] ({diff.OsuPath})");
+            _state = State.Loading;
+            _songSelect.Hide();
+            _statusText = "Loading " + diff.Version + " ...";
+            StartCoroutine(LoadAndPlay(diff));
+        }
+
+        private IEnumerator LoadAndPlay(BeatmapDifficultyInfo diff)
+        {
+            Beatmap map;
             try
             {
-                foreach (string raw in File.ReadLines(path))
-                {
-                    string line = raw.Trim();
-                    if (line.StartsWith("Title:")) m.Title = line.Substring(6).Trim();
-                    else if (line.StartsWith("Artist:")) m.Artist = line.Substring(7).Trim();
-                    else if (line.StartsWith("Version:")) m.Version = line.Substring(8).Trim();
-                    else if (line.StartsWith("Mode:")) int.TryParse(line.Substring(5).Trim(), out m.Mode);
-                    else if (line.StartsWith("[HitObjects]")) break; // headers are all above this
-                }
+                map = BeatmapParser.ParseFile(diff.OsuPath);
             }
-            catch { /* ignore, fall back to filename */ }
-            return m;
-        }
-
-        private void Select(BeatmapEntry entry)
-        {
-            _state = State.Loading;
-            _statusText = "Loading " + entry.Version + " ...";
-            StartCoroutine(LoadAndPlay(entry));
-        }
-
-        private IEnumerator LoadAndPlay(BeatmapEntry entry)
-        {
-            Beatmap map = BeatmapParser.ParseFile(entry.Path);
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[Bootstrap] Failed to parse '{diff.OsuPath}': {e}");
+                _statusText = "Failed to parse this beatmap.\n[Esc] to go back.";
+                _state = State.Menu;
+                _songSelect.Show();
+                yield break;
+            }
 
             AudioClip clip = null;
             if (!string.IsNullOrEmpty(map.General.AudioFilename))
@@ -130,6 +89,8 @@ namespace OsuUnity.Gameplay
             if (clip == null)
             {
                 _statusText = "Failed to load audio.\nIf this is an .mp3, try converting it to .ogg.\n[Esc] to go back.";
+                _state = State.Menu;
+                _songSelect.Show();
                 yield break;
             }
 
@@ -153,9 +114,9 @@ namespace OsuUnity.Gameplay
             _game = null;
             _statusText = "";
             _state = State.Menu;
+            _songSelect.Populate(BeatmapLibrary.Scan());
+            _songSelect.Show();
         }
-
-        // ----------------------------------------------------------------- discovery
 
         // ----------------------------------------------------------------- skin
 
@@ -210,24 +171,6 @@ namespace OsuUnity.Gameplay
             return null;
         }
 
-        private static List<string> FindAllOsz()
-        {
-            var found = new List<string>();
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (string root in CandidateRoots())
-            {
-                if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) continue;
-                try
-                {
-                    foreach (string file in Directory.GetFiles(root, "*.osz", SearchOption.AllDirectories))
-                        if (seen.Add(Path.GetFullPath(file))) found.Add(file);
-                }
-                catch { /* skip unreadable roots */ }
-            }
-            found.Sort(StringComparer.OrdinalIgnoreCase);
-            return found;
-        }
-
         private static IEnumerable<string> CandidateRoots()
         {
             yield return Application.persistentDataPath;
@@ -236,46 +179,26 @@ namespace OsuUnity.Gameplay
             yield return Directory.GetParent(Application.dataPath)?.FullName; // project root
         }
 
-        // ----------------------------------------------------------------- GUI
+        // ----------------------------------------------------------------- GUI (scanning/loading overlay only)
 
         private void EnsureStyles()
         {
-            if (_title != null) return;
-            _title = new GUIStyle(GUI.skin.label) { fontSize = 30, fontStyle = FontStyle.Bold };
-            _title.normal.textColor = Color.white;
+            if (_label != null) return;
             _label = new GUIStyle(GUI.skin.label) { fontSize = 18 };
             _label.normal.textColor = Color.white;
-            _button = new GUIStyle(GUI.skin.button) { fontSize = 18, alignment = TextAnchor.MiddleLeft };
         }
 
         private void OnGUI()
         {
-            if (_state == State.Playing) return;
+            if (_state != State.Scanning && _state != State.Loading) return;
             EnsureStyles();
 
             GUI.color = new Color(0, 0, 0, 0.85f);
             GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), Texture2D.whiteTexture);
             GUI.color = Color.white;
 
-            GUI.Label(new Rect(40, 30, Screen.width - 80, 44), "osu! 3D — Song Select", _title);
-
-            if (_state == State.Scanning || _state == State.Loading || _entries.Count == 0)
-            {
-                GUI.Label(new Rect(40, 130, Screen.width - 80, 200), _statusText, _label);
-                return;
-            }
-
-            var view = new Rect(40, 120, Screen.width - 80, Screen.height - 170);
-            var content = new Rect(0, 0, view.width - 24, _entries.Count * 56);
-            _scroll = GUI.BeginScrollView(view, _scroll, content);
-            for (int i = 0; i < _entries.Count; i++)
-            {
-                var e = _entries[i];
-                string label = $"  {e.Artist} - {e.Title}  [{e.Version}]\n  {e.SetName}";
-                if (GUI.Button(new Rect(0, i * 56, content.width, 50), label, _button))
-                    Select(e);
-            }
-            GUI.EndScrollView();
+            GUI.Label(new Rect(40, 30, Screen.width - 80, 44), "osu! 3D", _label);
+            GUI.Label(new Rect(40, 130, Screen.width - 80, 200), _statusText, _label);
         }
     }
 }

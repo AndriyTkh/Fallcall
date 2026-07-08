@@ -111,6 +111,8 @@ See `PLAN.md` for concrete task tracking and next steps.
 ## 6. Code architecture (namespaces under `Assets/Scripts`)
 
 Full per-file table: **`INDEX.md`** (auto-generated).
+Performance playbook (pooling, batching, profiling): **`docs/OPTIMIZATION.md`**.
+osu! faithfulness / leniency spec (where gameplay must match real osu!): **`docs/osu-leniency.md`**.
 
 - **`Beatmaps/`** — pure osu! data + math. `.osu` parsing, difficulty formulas, slider
   geometry, timing. No Unity scene dependency beyond `Vector2/3`.

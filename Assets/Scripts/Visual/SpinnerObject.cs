@@ -24,6 +24,7 @@ namespace OsuUnity.Visual
         private bool _resolved;
         private double _resolveTime;
         private double _spawnTime;
+        private int _bonusSpins; // completed rotations past _required already scored
 
         public override void Init(HitObject ho, GameContext ctx)
         {
@@ -159,10 +160,13 @@ namespace OsuUnity.Visual
             }
             _lastAngle = angle;
 
-            // Bonus spins beyond the requirement.
-            if (_accumulated > _required && Mathf.Abs(Mathf.DeltaAngle(_lastAngle, angle)) > 0)
+            // Bonus: score/HP only (not combo, not accuracy) once per full extra rotation past the
+            // clear requirement (stable awards 1000 per spin).
+            int extraSpins = (int)Mathf.Max(0f, (float)(_accumulated - _required));
+            while (_bonusSpins < extraSpins)
             {
-                // award bonus roughly once per extra rotation
+                _bonusSpins++;
+                Ctx.Score.Apply(Judgement.SpinnerBonus, affectsCombo: false, affectsAccuracy: false);
             }
         }
 
@@ -177,7 +181,12 @@ namespace OsuUnity.Visual
                              : ratio >= 0.5 ? Judgement.Meh
                              : Judgement.Miss;
 
-            Ctx.Score.Apply(result, affectsCombo: true, affectsAccuracy: true);
+            // Combo pass/fail boundary is the clear requirement (ratio >= 1.0), not the accuracy
+            // tiers above: the spinner contributes +1 combo on a clean clear and otherwise breaks it,
+            // regardless of partial (Ok/Meh) accuracy credit.
+            bool cleared = ratio >= 1.0;
+            Ctx.Score.Apply(result, affectsCombo: cleared, affectsAccuracy: true);
+            if (!cleared) Ctx.Score.Combo = 0;
             Ctx.OnJudgement?.Invoke(result, _centre);
             if (result != Judgement.Miss)
                 Ctx.HitSounds.Play(Object.HitSound, _spinner.EndTime,

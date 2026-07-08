@@ -161,6 +161,12 @@ namespace OsuUnity.Beatmaps
             {
                 map.Breaks.Add(new BreakPeriod { Start = ParseInt(p[1]), End = ParseInt(p[2]) });
             }
+            // Video: "1,offset,\"video.avi\",0,0" or "Video,offset,\"video.avi\""
+            else if ((p[0] == "1" || p[0] == "Video") && p.Length >= 3)
+            {
+                map.VideoOffset = ParseInt(p[1]);
+                map.VideoFile = p[2].Trim().Trim('"');
+            }
         }
 
         private static void ParseTimingPoint(Beatmap map, string line)

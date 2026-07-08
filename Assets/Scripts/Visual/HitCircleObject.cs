@@ -48,6 +48,13 @@ namespace OsuUnity.Visual
             SetGroupAlpha(0f);
         }
 
+        public override void Reproject()
+        {
+            _worldPos = Ctx.Playfield.ToWorld(Object.Position);
+            transform.position = _worldPos;
+            transform.rotation = Ctx.Playfield.OrientationAt(Object.Position);
+        }
+
         public override void Tick(double time, bool isFront)
         {
             if (_resolved)
@@ -72,7 +79,7 @@ namespace OsuUnity.Visual
             if (isFront && Ctx.Cursor.PressedThisFrame)
             {
                 if (Mathf.Abs((float)delta) <= (float)Ctx.Hit50 &&
-                    Ctx.CursorWithin(_worldPos, Ctx.RadiusWorld))
+                    Ctx.CursorWithin(_worldPos, Ctx.RadiusWorld, Ctx.CursorHitboxWorld))
                 {
                     Resolve(Ctx.JudgeTiming(Mathf.Abs((float)delta)), time);
                     return;

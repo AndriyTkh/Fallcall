@@ -21,6 +21,10 @@ namespace OsuUnity.Beatmaps
         public bool Uninherited = true;
         public int Effects;
 
+        /// <summary>Kiai time ("hyper"/chorus flag) — bit 0 of the effects bitfield. Stays on until a later
+        /// timing point clears it.</summary>
+        public bool Kiai => (Effects & 1) != 0;
+
         /// <summary>Slider velocity multiplier contributed by this point.</summary>
         public double SpeedMultiplier
         {

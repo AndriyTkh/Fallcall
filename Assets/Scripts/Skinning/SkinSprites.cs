@@ -18,6 +18,9 @@ namespace OsuUnity.Skinning
         public static Sprite SliderBall => Unit(TextureFactory.Disc, "sliderb0", "sliderb");
         public static Sprite Cursor => Unit(TextureFactory.Disc, "cursor");
 
+        /// <summary>Arrow drawn along the guide line between consecutive objects (osu! "followpoint").</summary>
+        public static Sprite FollowPoint => Unit(TextureFactory.Arrow, "followpoint-0", "followpoint");
+
         // Elements with no procedural equivalent: null means "skin absent, draw nothing extra".
         public static Sprite ReverseArrow => SkinOnly("reversearrow");
         public static Sprite SliderScorePoint => SkinOnly("sliderscorepoint");

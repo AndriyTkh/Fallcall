@@ -11,6 +11,7 @@ namespace OsuUnity.Util
         private static Sprite _disc;
         private static Sprite _ring;
         private static Sprite _softRing;
+        private static Sprite _arrow;
 
         /// <summary>Solid filled circle with a soft antialiased edge.</summary>
         public static Sprite Disc => _disc != null ? _disc : (_disc = BuildDisc(256));
@@ -20,6 +21,9 @@ namespace OsuUnity.Util
 
         /// <summary>Wider ring used for slider follow circle visuals.</summary>
         public static Sprite SoftRing => _softRing != null ? _softRing : (_softRing = BuildRing(256, 0.62f, 0.97f));
+
+        /// <summary>Right-pointing chevron arrow used as the follow-point fallback (skin "followpoint").</summary>
+        public static Sprite Arrow => _arrow != null ? _arrow : (_arrow = BuildArrow(128));
 
         private static Sprite BuildDisc(int size)
         {
@@ -59,6 +63,35 @@ namespace OsuUnity.Util
             }
             tex.Apply();
             return ToSprite(tex);
+        }
+
+        /// <summary>A ">" chevron whose tip points along +X (so callers roll it toward the next object).</summary>
+        private static Sprite BuildArrow(int size)
+        {
+            var tex = NewTexture(size);
+            // Normalised space centred on the texture, +x right, +y up (symmetric about y).
+            Vector2 tip = new Vector2(0.34f, 0f);
+            Vector2 armTop = new Vector2(-0.26f, 0.40f);
+            Vector2 armBot = new Vector2(-0.26f, -0.40f);
+            const float thick = 0.13f;
+            const float edge = 0.02f;
+            for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                var p = new Vector2((x + 0.5f) / size - 0.5f, (y + 0.5f) / size - 0.5f);
+                float d = Mathf.Min(DistToSegment(p, tip, armTop), DistToSegment(p, tip, armBot));
+                float a = Mathf.Clamp01((thick - d) / edge);
+                tex.SetPixel(x, y, new Color(1, 1, 1, a));
+            }
+            tex.Apply();
+            return ToSprite(tex);
+        }
+
+        private static float DistToSegment(Vector2 p, Vector2 a, Vector2 b)
+        {
+            Vector2 ab = b - a;
+            float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / Vector2.Dot(ab, ab));
+            return Vector2.Distance(p, a + t * ab);
         }
 
         private static Texture2D NewTexture(int size)

@@ -14,9 +14,8 @@ namespace OsuUnity.Gameplay
             if (!File.Exists(path)) { onDone(null); yield break; }
 
             AudioType type = AudioTypeFromExtension(path);
-            string url = PathToUrl(path);
 
-            using var req = UnityWebRequestMultimedia.GetAudioClip(url, type);
+            using var req = UnityWebRequestMultimedia.GetAudioClip(ToFileUrl(path), type);
             yield return req.SendWebRequest();
 
             if (req.result != UnityWebRequest.Result.Success)
@@ -34,7 +33,7 @@ namespace OsuUnity.Gameplay
         {
             if (!File.Exists(path)) { onDone(null); yield break; }
 
-            using var req = UnityWebRequestTexture.GetTexture(PathToUrl(path));
+            using var req = UnityWebRequestTexture.GetTexture(ToFileUrl(path));
             yield return req.SendWebRequest();
 
             if (req.result != UnityWebRequest.Result.Success)
@@ -59,9 +58,10 @@ namespace OsuUnity.Gameplay
             }
         }
 
-        private static string PathToUrl(string path)
+        /// <summary>Convert a filesystem path to a file:// URI (also used by <see cref="VideoPlayback"/>
+        /// for its VideoPlayer.url, since videos stream directly rather than via UnityWebRequest).</summary>
+        public static string ToFileUrl(string path)
         {
-            // UnityWebRequest needs a file:// URI; Uri handles spaces / special chars.
             return new Uri(Path.GetFullPath(path)).AbsoluteUri;
         }
     }

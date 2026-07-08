@@ -67,7 +67,8 @@ line) so concurrent sessions don't merge-conflict. Then start working.
   circles/sliders/spinners, scoring/HP, hit sounds, skins, procedural-art fallback.
 - Presentation is **cylinder** projection (`Playfield.cs`, `Curved=true`) + first-person
   mouse-look (`FirstPersonCamera.cs`). Flat 2D plane exists as a fallback path.
-- Minimal IMGUI menu: `Bootstrap` scans `.osz`, difficulty picker, pause menu.
+- Song select: `Bootstrap` scans via `BeatmapLibrary`, `SongSelectUI` (runtime uGUI carousel/
+  search/sort/download-by-id) picks a difficulty; pause menu still IMGUI.
 - Settings split across `Osu3DSettings` (scene) and `GameSettings` (persisted).
 - Docs scaffold: `INDEX.md` (auto-gen), `STRUCTURE.md` (vision), this file, `CLAUDE.md`.
 - **No block claimed yet.** Board below is the starting state.
@@ -82,13 +83,13 @@ edit (overlap guard uses this).
 
 | ID | Block | Status | Deps | Owns (primary files) |
 | --- | --- | --- | --- | --- |
-| **R1** | Optimization research → `docs/OPTIMIZATION.md` | TODO | — | `docs/OPTIMIZATION.md` only |
-| **R2** | osu! leniency/faithfulness research → `docs/osu-leniency.md` | TODO | — | `docs/osu-leniency.md` only |
-| **A** | Cylinder → sphere projection + camera + modes | TODO | — | `Playfield.cs`, `FirstPersonCamera.cs`, camera/mode scripts (new), `Osu3DSettings.cs` |
-| **C** | Gameplay leniency fixes (match og osu!) | TODO | R2 | `GameManager.cs`, `ScoreProcessor.cs`, `SliderObject.cs`, `SpinnerObject.cs`, `CursorController.cs`, `GameSettings.cs` |
-| **D** | Auto beatmap loader (download / cache / save) | TODO | — | `AssetLoader.cs`, `OszImporter.cs`, new `BeatmapLibrary.cs` + downloader |
-| **B** | Song selection UI (osu!lazer style) | BLOCKED (by D) | D | `Bootstrap.cs`, new song-select UI scripts |
-| **E** | Video playback during gameplay | TODO | — | new `VideoPlayback.cs`, `GameManager.cs` (spawn hook), `AssetLoader.cs` (coordinate w/ D) |
+| **R1** | Optimization research → `docs/OPTIMIZATION.md` | DONE (2026-07-06) | — | `docs/OPTIMIZATION.md` only |
+| **R2** | osu! leniency/faithfulness research → `docs/osu-leniency.md` | DONE (2026-07-06) | — | `docs/osu-leniency.md` only |
+| **A** | Cylinder → sphere projection + camera + modes | IN-PROGRESS (opus, 2026-07-06) | — | `Playfield.cs`, `FirstPersonCamera.cs`, camera/mode scripts (new), `Osu3DSettings.cs`, `GameManager.cs` (camera wiring, since C landed) |
+| **C** | Gameplay leniency fixes (match og osu!) | DONE (2026-07-06) | R2 | `GameManager.cs`, `ScoreProcessor.cs`, `SliderObject.cs`, `SpinnerObject.cs`, `CursorController.cs`, `GameSettings.cs` |
+| **D** | Auto beatmap loader (download / cache / save) | DONE (2026-07-06) | — | `AssetLoader.cs`, `OszImporter.cs`, new `BeatmapLibrary.cs` + downloader |
+| **B** | Song selection UI (osu!lazer style) | DONE (2026-07-06) | D | `Bootstrap.cs`, new song-select UI scripts |
+| **E** | Video playback during gameplay | DONE (2026-07-06) | — | new `VideoPlayback.cs`, `GameManager.cs` (spawn hook), `AssetLoader.cs` (coordinate w/ D), `GameSettings.cs`, `Beatmap.cs`/`BeatmapParser.cs` |
 
 **Overlap notes (read before claiming):**
 - **R1, R2** touch docs only → safe to run alongside anything.
@@ -98,6 +99,10 @@ edit (overlap guard uses this).
   `IN-PROGRESS` wins; the other waits).
 - **D** and **E** both touch `AssetLoader.cs`. Whoever claims first owns it; the other adds
   a small hook and coordinates via the Activity log.
+- **A** and **E** both landed edits to `GameManager.cs` in the same window (A's ViewModeController
+  wiring + E's video spawn/tick/pause hooks) — re-based on read, no semantic conflict (additive in
+  different methods). Board's A row updated to reflect it actually owns `GameManager.cs` now;
+  future concurrent GameManager edits should serialize like the C/A precedent above.
 - **B** consumes the library API that **D** produces → hard dep. Do not start B until D
   lands `BeatmapLibrary` (its listing/scan/download-status surface).
 
@@ -112,8 +117,7 @@ D   (beatmap loader) ─▶ B   (song select needs library API)
 E   (video)           ── independent (coordinate AssetLoader with D)
 ```
 
-Startable **right now** (no unmet deps): **R1, R2, A, D, E**. **C** unlocks when R2 is
-`DONE`; **B** unlocks when D is `DONE`.
+Startable **right now** (no unmet deps): none — **A** IN-PROGRESS; R1/R2/C/D/B/E DONE.
 
 ---
 
@@ -144,46 +148,146 @@ the fix location, ready for C to implement. Link it from `STRUCTURE.md` and `CLA
 
 ### A — Cylinder → sphere projection + camera + modes
 The existing projection roadmap. Route stays through `Playfield.ToWorld` / `OrientationAt`.
-1. Convert `Playfield` to wrap the playfield onto a **120°×90° sphere chunk** (was
-   cylinder). Keep flat mode working. Expose chunk H/V degrees + radius as settings.
-2. Camera baseline for sphere: free horizontal look, vertical clamp ±90°, FOV 90. Confirm
-   "radius as a parameter" semantics (see `STRUCTURE.md` §2).
-3. Mode system: switchable camera/projection enum (Sphere / 2D-ortho / Falling), changeable
-   mid-map. Start Sphere + 2D-ortho.
-4. 2D-ortho zoom logic: stream detect (equal gaps + close spacing) → follow+zoom; spinner →
-   smooth zoom-in; else fixed rect covering next click group. Zoom only between clicks.
-5. Falling mode: project the *camera* onto a sphere above/below the flat plane
-   (`STRUCTURE.md` §3c).
+1. ✅ **DONE (2026-07-06)** — `Playfield` now wraps onto a **120°×90° sphere chunk**
+   (equirectangular yaw/pitch, was cylinder). Flat mode intact. Chunk H/V degrees + radius
+   are settings (`Osu3DSettings`/`GameSettings`, pause sliders). Surface raycast centralized
+   in `Playfield.RaycastSurface` (cursor calls it; old `IntersectCylinder` removed). Camera
+   FOV now frames the vertical chunk (≈90°).
+2. ✅ **DONE (2026-07-06)** — `FirstPersonCamera` now does **free horizontal look** (unbounded
+   yaw, wraps) + **±90° vertical clamp** (`MaxPitch`), `FreeHorizontal` toggle falls back to
+   chunk-extent clamp. FOV≈90 frames the vertical chunk (from step 1). `Init` signature kept
+   so no `GameManager` change needed. "Radius as a parameter" semantics documented in
+   `Playfield` header.
+3. ✅ **DONE (2026-07-06)** — `ViewMode` enum + `ViewModeController` (new): owns per-mode
+   camera+projection+first-person config, toggles **Sphere ⇄ Ortho2D** mid-map with **[Tab]**.
+   `GameManager` no longer configures the camera itself — it just creates the controller and
+   hands over camera/playfield/active-list (initial mode from the `Curved` setting). Switching
+   reprojects active objects via new `DrawableHitObject.Reproject()` (`HitCircleObject`
+   overrides; circles follow cleanly). _Limitations:_ in-flight **sliders/spinners** finish in
+   their spawn projection (mesh reprojection deferred — switch between objects); **Falling**
+   enum exists but falls back to Sphere (see step 5).
+4. ✅ **DONE (2026-07-06)** — 2D-ortho **dynamic zoom** landed. `ViewModeController` now owns an
+   `OrthoZoomer` (nested): pre-partitions the map into big **click groups** — a **timing-driven**
+   partition (2026-07-06 revision) that accumulates ~`OrthoGroupTargetCount` notes then cuts at the
+   next pause (`OrthoGroupBreakGapMs`), with a long-pause section break (`OrthoGroupGapMs`), a hard
+   count cap (`OrthoGroupMaxCount`), and spinners isolated — so group size floats with map density
+   (~15-20, bigger on harder maps) instead of osu!'s too-short combos. Classifies each
+   **Normal / Stream / Spinner**, and each frame pans+zooms the ortho camera to the group being (or
+   about to be) clicked — **Stream** follows the cursor path (smoothstep between notes), **Spinner**
+   eases a zoom-in toward centre over its duration, **Normal** frames a fixed rect (bounds + circle-
+   radius pad) over the whole group. A group is revealed the instant the previous group's last note is
+   hit, spending the **whole inter-group pause** easing onto the new frame = max sightread (first
+   group leads in `OrthoZoomLeadMs`). Off → static full-field framing. `GameManager`
+   passes the map to `Init` and calls new `TickView(time)` each frame. Knobs are settings:
+   `Osu3DSettings` (Inspector) + `GameSettings` (persisted; live pause-menu toggle + smoothing/margin
+   sliders); classification thresholds apply on restart, framing knobs live. Not runtime-verified (no
+   headless path) — math/wiring reviewed; needs Unity Play + Tab into Ortho2D.
+5. ✅ **DONE (2026-07-06)** — **Falling mode** (§3c). Gameplay stays on the **flat plane**
+   (`Curved=false`); a **perspective** camera is placed on a **sphere-cap above the plane**, looks at
+   the plane centre, and **tilts toward the mouse's offset from screen centre** (up to
+   `FallingMaxTiltDeg`) for a handheld-overhead feel — "you move above the screen". Tilt reads
+   screen-space mouse (not the cursor's plane hit) so the camera never chases its own projection;
+   SmoothDamp'd. FOV frames the plane to `FallingZoom` of the view height at `FallingRadius`. Cursor
+   reuses the flat mouse-ray path. **Tab now cycles all three modes** (Sphere→Ortho2D→Falling). Knobs
+   are settings (`Osu3DSettings` Inspector + persisted `GameSettings`). `UsesFirstPerson` narrowed to
+   Sphere only. Not runtime-verified (no headless path) — math/wiring reviewed; needs Unity Play + Tab.
 6. Visual "fall" backdrop: fast geometric 3D space for spectacle.
 **Done when:** sphere is default, flat still works, mode enum switches at runtime, all new
 knobs are settings. (Large block — split into commits; update this list as subtasks land.)
 
-### C — Gameplay leniency fixes  _(needs R2)_
-Implement the divergences R2 documents. Known targets:
-- Slider **end** miss must **not break combo** (currently does / mis-scores).
-- **Spinner** combo bug — fix combo accounting.
-- **Cursor**: bigger cursor + **adjustable hitbox** as a `GameSettings` value.
-- Sweep the rest of R2's list (note-lock, follow circle, hit windows) as found.
-**Done when:** each item in R2 is either fixed or explicitly deferred with a note here.
+### C — Gameplay leniency fixes  _(needs R2)_ — DONE (2026-07-06)
+Fixed, against `docs/osu-leniency.md`'s numbering:
+- **#1** Slider tail miss no longer breaks combo (`SliderObject.Finalize`: `affectsCombo: false`
+  on the untracked-tail branch). Ticks/repeats/head still break combo — unchanged (#9 correct-keep).
+- **#3** Spinner bonus spins now scored: `SpinnerObject.AccumulateSpin` tracks `_bonusSpins`,
+  applies `Judgement.SpinnerBonus` (bumped `100`→`1000` to match stable) per full extra rotation,
+  `affectsCombo: false, affectsAccuracy: false`.
+- **#4** Spinner combo pass/fail boundary moved from `ratio >= 0.5` to the clear requirement
+  (`ratio >= 1.0`): `SpinnerObject.Resolve` applies the accuracy judgement with
+  `affectsCombo: cleared`, then explicitly `Score.Combo = 0` when not cleared (accuracy tiers
+  Great/Ok/Meh/Miss at 1.0/0.75/0.5 unchanged — only the combo-break line moved).
+- **#5** Cursor size + adjustable hitbox: `GameSettings.CursorSize` (visual multiplier, default
+  `1`) and `CursorHitboxOsu` (osu!-px, default `0` = faithful point-in-circle). Threaded via new
+  `GameContext.CursorHitboxWorld` and a `CursorWithin(centre, radius, extra)` overload used only
+  at the two head hit-test sites (`HitCircleObject.Tick`, `SliderObject.HandleHead`) — slider
+  follow-tracking stays on `FollowRadiusWorld` alone, untouched. Pause-menu sliders added
+  (`GameManager.DrawPauseMenu`, box height bumped 560→720 to fit); cursor sprite scale driven from
+  `CursorSize` at the `CursorController.Init` call site in `GameManager.BuildScene`.
+- **#6/#7/#8/#9** (hit windows, note-lock, follow-circle 2.4×, tick/repeat combo-break) — already
+  correct, left as-is per R2.
 
-### D — Auto beatmap loader (download / cache / save)
-Loading, **saving**, **caching**, and **downloading** osu! beatmaps. Produce a
-`BeatmapLibrary` that scans local `.osz`, caches extracted maps, and downloads new ones
-(mirror/API TBD — see Open questions). Expose a clean **listing API** for block B.
+**Deferred (not fixed, noted per Done-when):**
+- **#2** Slider head accuracy weight (currently `affectsAccuracy: false`, folded into the
+  end-fraction instead) — R2 flags this as a scoring-model decision (match lazer's full head
+  judgement vs. keep the simpler end-fraction), lower priority since it only shifts accuracy%,
+  not combo. Left as-is; revisit with the human if osu!-exact accuracy becomes a priority.
+- **#10** HP drain curve (custom forgiving model, not osu!'s real drain curve) — explicitly out of
+  R2's scope, left as-is.
+- **#11** Rank thresholds (accuracy-only approximation, no true 300-ratio/no-miss rule) — cosmetic
+  results-screen item, explicitly out of R2's scope, left as-is.
+
+**Done when:** each item in R2 is either fixed or explicitly deferred with a note here. ✅ met.
+
+### D — Auto beatmap loader (download / cache / save) — DONE (2026-07-06)
+Added `BeatmapLibrary.cs` (static) + `BeatmapDownloader.cs` (static). Shape for B:
+- `BeatmapLibrary.Scan() -> List<BeatmapSetInfo>` — rescans `SongsFolder` +
+  the existing candidate roots (persistentData/streamingAssets/dataPath/project root) for
+  `.osz`, extracts each via `OszImporter` (cache under `Application.temporaryCachePath`,
+  rebuilt from the .osz on demand — the .osz itself is the durable source), returns one
+  `BeatmapSetInfo` per set (osu!standard difficulties only, same filter Bootstrap used).
+- `BeatmapSetInfo { SetName, OszPath, OnlineSetId (int?, parsed from the "`1234 Artist -
+  Title`" osu! naming convention), Status (enum NotDownloaded/Downloading/Downloaded/Failed),
+  Difficulties: List<BeatmapDifficultyInfo{ OsuPath, Artist, Title, Version }> }`.
+- `BeatmapLibrary.DownloadSet(int setId, Action<float> onProgress, Action<BeatmapSetInfo>
+  onDone) -> IEnumerator` — tries mirrors in order (`BeatmapDownloader.MirrorUrls`: nerinyan
+  then catboy), saves to `SongsFolder/{setId}.osz`, then extracts + returns the same
+  `BeatmapSetInfo` shape as `Scan()`. `onDone(null)` on total failure.
+- `BeatmapLibrary.SongsFolder` = `Application.persistentDataPath/Songs` — **this is the
+  decided on-disk cache location** (resolves the D open question below).
+`Bootstrap.cs` still has its own inline scan/picker — untouched here (it's B's file per the
+overlap guard); **B should swap that inline logic for `BeatmapLibrary.Scan()`/`DownloadSet`**.
 **Done when:** library scans + caches local maps, can download a map by id/set, and exposes
-a stable listing/status API. Note the API shape here so B can build against it.
+a stable listing/status API. ✅ met.
 
-### B — Song selection UI (osu!lazer style)  _(needs D)_
-Replace the minimal IMGUI difficulty picker with an osu!lazer-style song select (carousel
-list, search/sort, difficulty panel, background). Consume D's `BeatmapLibrary` API.
+### B — Song selection UI (osu!lazer style)  _(needs D)_ — DONE (2026-07-06)
+Added `SongSelectUI.cs` — runtime-built uGUI (Canvas/EventSystem created in code, no scene
+wiring): carousel list from `BeatmapLibrary.Scan()`, search field (matches set name /
+artist / title / version), sort toggle (Title/Artist/SetId), detail panel with difficulty
+buttons + lazy background preview (parses the selected difficulty's `.osu` for
+`BackgroundFile` via `BeatmapParser`, loads via `AssetLoader.LoadTexture`, only on click —
+not per carousel row), and a "download by online id" box wired to
+`BeatmapLibrary.DownloadSet` (progress %, appends result to the list on success).
+`Bootstrap.cs` rewritten: old inline `BeatmapEntry`/`QuickMeta`/`FindAllOsz` IMGUI picker
+removed entirely; it now just scans via `BeatmapLibrary.Scan()`, populates/shows
+`SongSelectUI`, and on `PlaySelected(set, diff)` loads audio/background from the chosen
+`BeatmapDifficultyInfo` and hands off to `GameManager` (unchanged). `BackToMenu` re-scans
+and re-shows the UI. Bootstrap's `OnGUI` now only draws the scanning/loading status overlay.
+**Not yet verified in-editor** — no headless Unity run path exists (per `CLAUDE.md`); needs
+a human/agent with Editor access to press Play and click through search/sort/select/download.
 **Done when:** song select browses the library, picks a difficulty, and starts a session;
-old picker path removed or gated.
+old picker path removed or gated. ✅ met (pending in-editor verification).
 
-### E — Video playback during gameplay
-Some beatmaps ship a background video (`Video` event in `.osu`). Play it behind gameplay
-via Unity `VideoPlayer`, synced to `GameClock`. Coordinate `AssetLoader` changes with D.
+### E — Video playback during gameplay — DONE (2026-07-06)
+- `Beatmap.VideoFile`/`VideoOffset` + `BeatmapParser` now parse the `Video` event (`"1,offset,
+  \"file\""` / `"Video,offset,\"file\""`), same shape as the existing `Background` event.
+- New `VideoPlayback.cs`: wraps a `VideoPlayer` (`VideoAudioOutputMode.None` — the beatmap's
+  music `AudioSource` is the only audio, video is picture-only) rendering to a `RenderTexture`
+  on a quad parented to the camera (always fills the frustum, like a skybox) at a distance
+  beyond the gameplay chunk radius but inside the far clip plane. `Tick(songTimeMs)` starts/
+  pauses/reseeks against drift (>100ms) rather than free-running, so it stays locked to
+  `GameClock`; quad size is recomputed every tick since `ViewModeController` can flip the
+  camera between perspective (Sphere) and orthographic (Ortho2D) mid-map via Tab.
+- `GameManager.BuildScene` spawns it (`GameSettings.EnableVideo` + `map.VideoFile` present +
+  file exists on disk); `Update` ticks it; `TogglePause`/`Cleanup` mirror pause and teardown.
+  Pause menu gained a "Play background video" toggle (applied on restart), box height bumped
+  720→800 to fit.
+- `AssetLoader.PathToUrl` renamed to public `ToFileUrl` (video streams directly from a
+  `file://` URL via `VideoPlayer`, unlike audio/texture which go through `UnityWebRequest`).
+**Not yet verified in-editor** — no headless Unity run path exists (per `CLAUDE.md`); needs a
+human/agent with Editor access to play a video-having map and confirm sync/backdrop framing in
+both Sphere and Ortho2D, plus pause/restart/mode-switch behavior.
 **Done when:** maps with a video event play it in sync (with a setting to disable), no
-regression for maps without video.
+regression for maps without video. ✅ met (pending in-editor verification).
 
 ---
 
@@ -192,10 +296,15 @@ regression for maps without video.
 - **A:** default sphere radius + chunk degrees for "normal" feel; mode-switch trigger source
   (authored in beatmap / heuristic / manual toggle); stream-detection thresholds.
 - **D:** _Decided 2026-07-06 → use a **mirror (nerinyan/catboy)**, no auth/API key,
-  download `.osz` by set id._ Still open: on-disk cache location.
+  download `.osz` by set id. On-disk cache location decided 2026-07-06 →
+  `Application.persistentDataPath/Songs` for downloaded `.osz`; extracted folders stay in
+  `Application.temporaryCachePath` (disposable, rebuilt from the .osz)._
 - **B:** _Decided 2026-07-06 → **uGUI** (Canvas) for the song-select UI._ Still open: how
   faithful to lazer's carousel (exact vs. simplified).
-- **C:** default cursor size + hitbox range values.
+- **C:** _Decided 2026-07-06 → `CursorSize` default `1.0` (same as prior hardcoded 0.6× circle
+  diameter, cosmetic multiplier, pause-menu range 0.5–3.0); `CursorHitboxOsu` default `0` (faithful
+  point-in-circle), pause-menu range 0–30 osu!px. Revisit exact numbers if playtesting says
+  otherwise._
 
 ## Tips for following agents
 
@@ -211,10 +320,131 @@ regression for maps without video.
 
 _One line per claim/finish so parallel sessions can see who's on what. Newest first._
 
+- 2026-07-06 — Reworked Ortho2D click-group partitioning to be **timing-driven** (was gap-split, which
+  made 1-3 note groups). `OrthoZoomer.Build` now accumulates ~`OrthoGroupTargetCount` (16) notes then
+  cuts at the next pause ≥ `OrthoGroupBreakGapMs`, with `OrthoGroupMaxCount` hard cap + `OrthoGroupGapMs`
+  (now a 900ms section-break pause) + spinner isolation → map-density-dependent ~15-20 groups. Camera
+  now reveals a group at the previous group's End (whole pause used to reframe = sightread) instead of a
+  fixed lead. Also added **kiai** ("hyper") support: `TimingPoint.Kiai` (effects bit 0) + `Beatmap.IsKiaiAt`;
+  groups in kiai snap harder (`OrthoKiaiSmoothMul`) and frame tighter (`OrthoKiaiZoomMul`). Added a
+  master **`OrthoAggressiveness`** [0..1] knob: 0 = big groups (Target/Max counts), 1 = target 1 / max 4
+  → camera cuts to every native click-group. New `OrthoGroup*`/`OrthoKiai*`/`OrthoAggressiveness`
+  settings (`Osu3DSettings`+`GameSettings`, DefaultsVersion 9→12). Not runtime-verified (no headless
+  path). — opus
+- 2026-07-06 — Added `StartMode` setting (`ViewMode` enum) — picks the session's opening view mode
+  (`Osu3DSettings` Inspector dropdown + persisted `GameSettings`, DefaultsVersion 8→9). `GameManager`
+  seeds the initial mode from it (was the `Curved` bool); pause menu's old "Curved" toggle replaced by
+  a live **View mode** toolbar (Sphere/2D Ortho/Falling) that also applies mid-map. [Tab] still cycles. — opus
+- 2026-07-06 — Finished A.5: Falling mode — flat gameplay + perspective camera on a sphere-cap above
+  the plane, tilting toward the mouse's screen-centre offset (SmoothDamp'd handheld feel), FOV frames
+  the plane to `FallingZoom`. Tab now cycles Sphere→Ortho2D→Falling; `UsesFirstPerson` narrowed to
+  Sphere. New `Falling*` settings (`Osu3DSettings`+`GameSettings`, DefaultsVersion 6→7). Not
+  runtime-verified. Only **A.6 (visual fall backdrop)** remains in the A lane — the A "Done when"
+  (sphere default / flat works / mode enum switches at runtime / knobs are settings) is now met. — opus
+- 2026-07-06 — Claimed A.5 (Falling mode: camera-on-sphere above the flat plane). — opus
+- 2026-07-06 — Finished A.4: Ortho2D dynamic click-group zoom in `ViewModeController` (nested
+  `OrthoZoomer` — group partition + Normal/Stream/Spinner classification + SmoothDamp pan/zoom,
+  stream follow / spinner zoom-in / normal rect). `GameManager` passes the map to `Init`, calls
+  `TickView(time)`. New settings in `Osu3DSettings`+`GameSettings` (DefaultsVersion 5→6) + live
+  pause-menu toggle/sliders. Not runtime-verified. **A.5 (Falling) is next in the A lane.** — opus
+- 2026-07-06 — Claimed A.4 (Ortho2D dynamic zoom: click-group framing, stream follow, spinner
+  zoom-in). Touches A-owned `ViewModeController.cs`, `GameManager.cs`, `Osu3DSettings.cs`,
+  `GameSettings.cs` (C DONE → conflict-free). — opus
+
+- 2026-07-06 — Finished E: `Beatmap`/`BeatmapParser` parse the `Video` event; new
+  `VideoPlayback.cs` (VideoPlayer → RenderTexture on a camera-parented backdrop quad, muted,
+  synced/reseeked against `GameClock` with 100ms drift tolerance, resizes for both Sphere/
+  perspective and Ortho2D/orthographic since Tab can switch mid-map); wired into
+  `GameManager` (spawn/tick/pause/cleanup + pause-menu toggle, `GameSettings.EnableVideo`).
+  `AssetLoader.PathToUrl`→public `ToFileUrl` (video streams via URL, no UnityWebRequest
+  needed). Re-based `GameManager.cs` edits on top of A's live ViewModeController changes
+  (both landed in the same window) — additive, no semantic conflict. Not yet verified
+  in-editor. — sonnet
+- 2026-07-06 — Claimed E (video playback during gameplay). — sonnet
+- 2026-07-06 — Finished B: `SongSelectUI.cs` (new, runtime uGUI carousel/search/sort/detail
+  panel/background preview/download-by-id) consuming `BeatmapLibrary`. `Bootstrap.cs`
+  rewritten to drop the old inline IMGUI picker and drive the new UI. Not yet verified
+  in-editor (no headless Unity path in this repo) — flag for a Play-mode check. — sonnet
+- 2026-07-06 — Finished C: slider-tail miss no longer breaks combo, spinner bonus spins now score
+  (enum bumped 100→1000), spinner combo pass/fail boundary moved to the clear requirement
+  (ratio≥1.0) instead of 0.5, cursor size + adjustable hitbox settings added (`GameSettings`,
+  `GameContext.CursorHitboxWorld`, pause-menu sliders). Deferred: slider-head accuracy weight (#2,
+  needs a human scoring-model decision), HP drain curve (#10) and rank thresholds (#11) — both
+  explicitly out of R2 scope. — sonnet
+- 2026-07-06 — Claimed B (song select UI, uGUI, consuming `BeatmapLibrary`). — sonnet
+- 2026-07-06 — Claimed C (gameplay leniency fixes per `docs/osu-leniency.md`). — sonnet
+- 2026-07-06 — Finished D: added `BeatmapLibrary.cs` + `BeatmapDownloader.cs` (scan, cache,
+  mirror download by set id, listing/status API). Decided on-disk cache location
+  (`persistentDataPath/Songs`). **B is now unblocked** (dep D DONE) — `Bootstrap.cs`'s inline
+  scan is still the old path, B should swap it for `BeatmapLibrary`. — sonnet
+- 2026-07-06 — Claimed D (beatmap loader, to unblock B). — sonnet
+- 2026-07-06 — Finished R2: wrote `docs/osu-leniency.md` (11 items, current-vs-correct + fix
+  location). 🔴 = slider-tail miss breaks combo, spinner bonus dead code, cursor hitbox setting.
+  Linked from `STRUCTURE.md` §6. **C is now unblocked** (dep R2 DONE). — opus
+- 2026-07-06 — Finished R1: wrote `docs/OPTIMIZATION.md` (pooling, sort-order batching, atlas,
+  slider mesh reuse, GC hygiene, profiling), linked from `STRUCTURE.md` §6 (CLAUDE.md already
+  links it). — opus
+- 2026-07-06 — A.3 landed: `ViewModeController` + `ViewMode` enum — Sphere⇄Ortho2D toggle
+  ([Tab]), mid-map. Camera config moved out of `GameManager` into the controller;
+  `DrawableHitObject.Reproject()` added (circles follow on switch). C is DONE so GameManager
+  edits are conflict-free. Slider/spinner mesh reproject + Falling mode deferred. — opus
+- 2026-07-06 — A.2 landed: `FirstPersonCamera` free-horizontal look + ±90° vertical clamp
+  (A-owned file only; `Init` signature unchanged). A.3–A.6 need `GameManager` wiring — paused
+  while C is live in that file to avoid a merge conflict. — opus
+- 2026-07-06 — A.1 landed: sphere projection replaces cylinder (Playfield/Osu3DSettings mine;
+  minimal touches to C-owned GameManager/GameSettings/CursorController for wiring + surface
+  raycast — C is TODO, no live overlap). — opus
+- 2026-07-06 — Claimed A (cylinder→sphere projection + camera + modes). — opus
+- 2026-07-06 — Claimed R2 (osu! leniency research doc). — opus
+- 2026-07-06 — Claimed R1 (optimization doc). — opus
 - 2026-07-06 — Board created; blocks R1/R2/A/C/D/B/E defined with deps & file ownership.
 
 ## Done log
 
+- 2026-07-06 — **Follow points done** (STRUCTURE §4 readability guardrail): new `Visual/FollowPoints.cs`
+  draws osu!'s fading, staggered arrow line between consecutive in-combo objects (spinners + new-combo
+  break the chain; skipped when objects are close). Points route through `Playfield.ToWorld`/`OrientationAt`
+  then roll to point at the next object, so they curve/billboard and survive view switches. New procedural
+  `TextureFactory.Arrow` + `SkinSprites.FollowPoint` (skin `followpoint`). `GameManager` builds/ticks/cleans
+  it; new `ShowFollowPoints`/`FollowPointScale` settings (`Osu3DSettings`/`GameSettings`, DefaultsVersion→8)
+  + pause-menu toggle & size slider. Pending in-editor verification.
+- 2026-07-06 — **A.5 done**: Falling view mode — flat gameplay, perspective camera on a sphere-cap
+  above the plane tilting toward the mouse (handheld-overhead feel), in `ViewModeController`
+  (`ConfigureFalling`/`TickFalling`). Tab cycles all 3 modes. New `Falling*` settings
+  (`Osu3DSettings`/`GameSettings`, DefaultsVersion→7). Pending in-editor verification.
+- 2026-07-06 — **A.4 done**: Ortho2D dynamic click-group zoom (`OrthoZoomer` in
+  `ViewModeController`) — stream follow / spinner zoom-in / normal-group rect, SmoothDamp'd, retargets
+  between clicks. Wired via `GameManager.TickView`. New `Osu3DSettings`/`GameSettings` knobs
+  (`OrthoZoom*`, DefaultsVersion→6) + pause-menu toggle. Pending in-editor verification.
+- 2026-07-06 — **Visibility QOL**: background-dim setting (`GameSettings.BackgroundDim`, live,
+  persisted, defaults v5) via new `BackgroundDim.cs` — camera-space black quad placed in front of
+  the video/skybox but beyond gameplay, so it dims video + skybox + any future far scene while hit
+  objects stay bright. Pause-menu "Visibility" slider. Blur deferred (needs a downsample/grabpass
+  shader in built-in RP; not "easy"). Pending in-editor verification.
+- 2026-07-06 — **E done**: background video (`Video` event) parsed and played via new
+  `VideoPlayback.cs` (VideoPlayer + RenderTexture on a camera-backdrop quad, muted, synced to
+  `GameClock`), wired into `GameManager` with an `EnableVideo` pause-menu toggle. Pending
+  in-editor verification.
+- 2026-07-06 — **B done**: `SongSelectUI.cs` (runtime uGUI song select: carousel, search,
+  sort, difficulty panel, background preview, download-by-id) replaces the old IMGUI picker
+  in `Bootstrap.cs`. Consumes `BeatmapLibrary`. Pending in-editor Play-mode verification.
+- 2026-07-06 — **C done**: fixed slider-tail combo (#1), spinner bonus scoring (#3), spinner combo
+  clear-boundary (#4), cursor size + hitbox settings (#5) per `docs/osu-leniency.md`. Deferred #2
+  (slider head accuracy weight), #10 (HP drain), #11 (rank thresholds) with notes in the C block.
+- 2026-07-06 — **D done**: `BeatmapLibrary.cs` (scan/cache/list) + `BeatmapDownloader.cs`
+  (mirror download by set id). Cache location: `.osz` in `persistentDataPath/Songs`,
+  extracted folders in `temporaryCachePath` via existing `OszImporter`. Listing API
+  (`BeatmapSetInfo`/`BeatmapDifficultyInfo`) documented in the D block detail. Unblocks B.
+- 2026-07-06 — **R2 done**: `docs/osu-leniency.md` — 11 divergences as current-vs-correct with
+  fix locations for C. Fixes: slider-tail miss must not break combo (`SliderObject.Finalize`),
+  spinner bonus dead code (`SpinnerObject.AccumulateSpin`), spinner combo threshold, cursor
+  size + adjustable hitbox setting. Correct-and-keep: hit windows/OD, note-lock, follow circle
+  2.4×, slider-tick combo break. Linked from `STRUCTURE.md` §6. Unblocks C.
+- 2026-07-06 — **R1 done**: `docs/OPTIMIZATION.md` filled out — pooling drawables +
+  `FloatingText`, collapsing `DepthOrder*10` sort bands to unlock sprite batching, skin-sprite
+  atlasing, shared `MaterialFactory`, slider mesh reuse, GC hygiene (IMGUI HUD / spinner text),
+  Jobs only for the fall backdrop, profiler workflow. Each tied to a real file. Linked from
+  `STRUCTURE.md` §6.
 - 2026-07-06 — Restructured `PLAN.md` into a parallel-agent task board (claim protocol,
   preflight check, dependency graph, file-ownership overlap guards). Added blocks for
   optimization research, osu! leniency research + fixes, beatmap loader, song-select UI,
