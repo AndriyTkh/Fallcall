@@ -111,6 +111,17 @@ namespace OsuUnity.Skinning
             return frames;
         }
 
+        /// <summary>
+        /// Raw texture for a HUD element, plus its source scale (1 = SD, 2 = @2x), for drawing with
+        /// IMGUI (<c>GUI.DrawTexture</c>) where a <see cref="Sprite"/> isn't usable. Returns false when
+        /// the element is absent. Divide pixel dimensions by <paramref name="scale"/> for legacy px.
+        /// </summary>
+        public bool GetHudTexture(string name, out Texture2D tex, out int scale)
+        {
+            if (TryLoad(name, out var el)) { tex = el.Tex; scale = el.Scale; return true; }
+            tex = null; scale = 1; return false;
+        }
+
         // ----------------------------------------------------------------- texture loading
 
         private bool TryLoad(string name, out Element element)

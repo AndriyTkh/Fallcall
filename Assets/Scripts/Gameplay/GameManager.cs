@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using OsuUnity.Beatmaps;
+using OsuUnity.Skinning;
 using OsuUnity.Visual;
 using UnityEngine;
 
@@ -366,33 +367,76 @@ namespace OsuUnity.Gameplay
             if (!_started || _ctx == null) return;
             EnsureStyles();
 
-            GUI.Label(new Rect(20, 14, 400, 40), $"{_score.Score:n0}", _bigStyle);
-            GUI.Label(new Rect(20, 60, 400, 30), $"{_score.Accuracy * 100:0.00}%", _style);
-            if (_score.Combo == 67 && Combo67Texture() != null)
-            {
-                // Draw the "67" image right-aligned in the combo counter's slot, keeping aspect ratio.
-                var tex = _combo67Tex;
-                const float h = 44f;
-                float w67 = h * tex.width / tex.height;
-                GUI.DrawTexture(new Rect(Screen.width - 20 - w67, 12, w67, h), tex, ScaleMode.ScaleToFit);
-            }
-            else
-            {
-                GUI.Label(new Rect(Screen.width - 220, 14, 200, 40), $"{_score.Combo}x", _bigStyle);
-            }
-
-            // HP bar.
-            float w = Screen.width - 40;
-            GUI.Box(new Rect(20, Screen.height - 26, w, 12), GUIContent.none);
-            GUI.color = Color.Lerp(Color.red, Color.green, (float)_score.HP);
-            GUI.DrawTexture(new Rect(20, Screen.height - 26, w * (float)_score.HP, 12), Texture2D.whiteTexture);
-            GUI.color = Color.white;
+            DrawHud();
 
             GUI.Label(new Rect(20, Screen.height - 52, 600, 24),
                 "[A]/[S]/[D] or click to hit   •   [R] restart   •   [Esc] pause", _style);
 
             if (_finished) DrawResults();
             else if (_paused) DrawPauseMenu();
+        }
+
+        // Draws score / accuracy / combo / health. Uses the skin's dedicated HUD fonts + scorebar when
+        // present (osu! layout: score & accuracy top-right, combo bottom-left, health top-left); falls
+        // back to plain IMGUI text with the original layout otherwise.
+        private void DrawHud()
+        {
+            float s = Mathf.Max(0.1f, GameSettings.HudScale);
+            const float margin = 16f;
+
+            if (HudSkin.Available)
+            {
+                var cfg = Skin.Current.Config;
+                HudSkin.DrawFont(cfg.ScorePrefix, _score.Score.ToString("#,0"),
+                    Screen.width - margin, margin, 42f * s, cfg.ScoreOverlap, true, Color.white);
+                HudSkin.DrawFont(cfg.ScorePrefix, (_score.Accuracy * 100.0).ToString("0.00") + "%",
+                    Screen.width - margin, margin + 50f * s, 24f * s, cfg.ScoreOverlap, true, Color.white);
+                if (!HudSkin.DrawHealthBar(margin, margin, Screen.width * 0.4f * s, (float)_score.HP))
+                    DrawSimpleHealthBar(margin, margin, Screen.width * 0.4f * s, 12f);
+
+                // Combo bottom-left; the "67" easter egg still wins when it fires.
+                float comboH = 44f * s, comboY = Screen.height - margin - comboH;
+                if (!DrawCombo67(margin, comboY, comboH, leftAnchor: true) &&
+                    !HudSkin.DrawFont(cfg.ComboPrefix, _score.Combo.ToString() + "x",
+                        margin, comboY, comboH, cfg.ComboOverlap, false, Color.white))
+                {
+                    GUI.Label(new Rect(margin, comboY, 200, comboH), $"{_score.Combo}x", _bigStyle);
+                }
+                return;
+            }
+
+            // ---- plain-text fallback (no skin HUD font), osu!standard layout ----
+            var rightScore = new GUIStyle(_bigStyle) { alignment = TextAnchor.UpperRight };
+            var rightAcc = new GUIStyle(_style) { alignment = TextAnchor.UpperRight };
+            GUI.Label(new Rect(Screen.width - 420 - margin, margin, 420, 44), $"{_score.Score:n0}", rightScore);
+            GUI.Label(new Rect(Screen.width - 420 - margin, margin + 46, 420, 30), $"{_score.Accuracy * 100:0.00}%", rightAcc);
+
+            float fbComboY = Screen.height - margin - 44f;
+            if (!DrawCombo67(margin, fbComboY, 44f, leftAnchor: true))
+                GUI.Label(new Rect(margin, fbComboY, 200, 44), $"{_score.Combo}x", _bigStyle);
+
+            DrawSimpleHealthBar(margin, margin, Screen.width * 0.4f * s, 12f);
+        }
+
+        // Plain red→green HP bar for when no scorebar skin element is available.
+        private void DrawSimpleHealthBar(float x, float y, float width, float height)
+        {
+            GUI.Box(new Rect(x, y, width, height), GUIContent.none);
+            GUI.color = Color.Lerp(Color.red, Color.green, (float)_score.HP);
+            GUI.DrawTexture(new Rect(x, y, width * (float)_score.HP, height), Texture2D.whiteTexture);
+            GUI.color = Color.white;
+        }
+
+        // Draws the "67" combo art (Assets/Images/images.png) if the combo is exactly 67 and the art
+        // loads; returns whether it drew. <paramref name="anchorX"/> is the left or right edge of the slot.
+        private bool DrawCombo67(float anchorX, float y, float height, bool leftAnchor)
+        {
+            if (_score.Combo != 67 || Combo67Texture() == null) return false;
+            var tex = _combo67Tex;
+            float w67 = height * tex.width / tex.height;
+            float x = leftAnchor ? anchorX : anchorX - w67;
+            GUI.DrawTexture(new Rect(x, y, w67, height), tex, ScaleMode.ScaleToFit);
+            return true;
         }
 
         private void DrawPauseMenu()
@@ -440,6 +484,7 @@ namespace OsuUnity.Gameplay
             _dim?.SetDim(GameSettings.BackgroundDim); // applies live to video + skybox + far scene
             GameSettings.ShowFollowPoints = GUI.Toggle(new Rect(x, y, w, 24), GameSettings.ShowFollowPoints, "  Follow points (restart)"); y += 30;
             GameSettings.FollowPointScale = Slider("Follow point size", GameSettings.FollowPointScale, 0.3f, 3f, "0.00", 1f, x, w, ref y);
+            GameSettings.HudScale = Slider("HUD size", GameSettings.HudScale, 0.4f, 2.5f, "0.00", 1f, x, w, ref y);
 
             y += 8;
             GUI.Label(new Rect(x, y, w, 22), "View mode — live · also [Tab] to cycle", _menuLabel); y += 26;
@@ -478,6 +523,8 @@ namespace OsuUnity.Gameplay
             GameSettings.OrthoZoom = GUI.Toggle(new Rect(x, y, w, 24), GameSettings.OrthoZoom, "  Dynamic click-group zoom (live)"); y += 30;
             GameSettings.OrthoZoomSmooth = Slider("Camera smoothing (live)", GameSettings.OrthoZoomSmooth, 0.02f, 1f, "0.00", 1f, x, w, ref y);
             GameSettings.OrthoZoomMargin = Slider("Zoom margin (live)", GameSettings.OrthoZoomMargin, 0f, 6f, "0.0", 1f, x, w, ref y);
+            GameSettings.OrthoOvershoot = Slider("Pan overshoot (live)", GameSettings.OrthoOvershoot, 0f, 0.6f, "0.00", 1f, x, w, ref y);
+            GameSettings.OrthoLookaheadMs = Slider("Lookahead (ms, restart)", GameSettings.OrthoLookaheadMs, 0f, 1500f, "0", 1f, x, w, ref y);
             GameSettings.OrthoAggressiveness = Slider("Grouping aggressiveness (restart)", GameSettings.OrthoAggressiveness, 0f, 1f, "0%", 1f, x, w, ref y);
             GameSettings.OrthoKiaiSmoothMul = Slider("Kiai snap (live)", GameSettings.OrthoKiaiSmoothMul, 0.1f, 1f, "0.00", 1f, x, w, ref y);
             GameSettings.OrthoKiaiZoomMul = Slider("Kiai zoom (live)", GameSettings.OrthoKiaiZoomMul, 0.5f, 1f, "0.00", 1f, x, w, ref y);

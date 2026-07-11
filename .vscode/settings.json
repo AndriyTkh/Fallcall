@@ -51,5 +51,32 @@
         "temp/": true,
         "Temp/": true
     },
+    "files.watcherExclude": {
+        "**/Library/**": true,
+        "**/Temp/**": true,
+        "**/Obj/**": true,
+        "**/obj/**": true,
+        "**/Build/**": true,
+        "**/build/**": true,
+        "**/Logs/**": true,
+        "**/UserSettings/**": true,
+        "**/.git/**": true,
+        "**/*.meta": true
+    },
+    "search.exclude": {
+        "**/Library/**": true,
+        "**/Temp/**": true,
+        "**/Obj/**": true,
+        "**/obj/**": true,
+        "**/Build/**": true,
+        "**/Logs/**": true,
+        "**/*.meta": true
+    },
+    "dotnet.backgroundAnalysis.analyzerDiagnosticsScope": "openFiles",
+    "dotnet.backgroundAnalysis.compilerDiagnosticsScope": "openFiles",
+    "dotnet.enableXamlTools": false,
+    "dotnet.server.startTimeout": 60000,
+    "telemetry.telemetryLevel": "off",
+    "git.autorefresh": false,
     "dotnet.defaultSolution": "Fallcall.sln"
 }

@@ -13,7 +13,7 @@ namespace OsuUnity.Gameplay
 
         // Bump when the built-in defaults below change so existing installs adopt them instead of
         // masking them with stale saved PlayerPrefs (see Load).
-        private const int DefaultsVersion = 12;
+        private const int DefaultsVersion = 16;
 
         public static float MusicVolume = 0.2f;
         public static float HitSoundVolume = 0.15f;
@@ -43,8 +43,10 @@ namespace OsuUnity.Gameplay
         // restart. Off = static full-field ortho framing.
         public static bool OrthoZoom = true;
         public static float OrthoZoomLeadMs = 350f;        // lead before the FIRST group's first note (live)
-        public static float OrthoZoomSmooth = 0.22f;       // SmoothDamp time (s) for pan+zoom (live)
+        public static float OrthoZoomSmooth = 0.22f;       // SmoothDamp time (s) for pan+zoom, relaxed cap (live)
         public static float OrthoZoomMargin = 1.6f;        // padding around a group, in circle radii (live)
+        public static float OrthoOvershoot = 0f;           // opt-in predictive lead past target (0 = pure smooth) (live)
+        public static float OrthoLookaheadMs = 400f;       // also frame notes coming within this many ms (restart)
         // Click-group partitioning (baked on session build → applies on restart). Groups aim for
         // OrthoGroupTargetCount notes but are cut at a *pause* (the sightread window) rather than a fixed
         // gap, so group size floats with map density/difficulty. See OrthoZoomer.Build.
@@ -80,6 +82,10 @@ namespace OsuUnity.Gameplay
         public static bool ShowFollowPoints = true;
         public static float FollowPointScale = 1f;
 
+        // HUD size multiplier (applied live). Scales the skinned score/combo/accuracy fonts and the
+        // health bar so the on-screen HUD can be tuned per display.
+        public static float HudScale = 1f;
+
         private static bool _loaded;
 
         // Snapshot of the defaults (built-in or scene-provided) captured at first load, so Reset can
@@ -94,9 +100,10 @@ namespace OsuUnity.Gameplay
             public float BackgroundDim;
             public bool ShowFollowPoints;
             public float FollowPointScale;
+            public float HudScale;
             public bool OrthoZoom;
             public int OrthoGroupTargetCount, OrthoGroupMaxCount;
-            public float OrthoAggressiveness, OrthoZoomLeadMs, OrthoZoomSmooth, OrthoZoomMargin, OrthoGroupBreakGapMs, OrthoGroupGapMs, OrthoStreamGapMs, OrthoStreamSpacingOsu, OrthoKiaiSmoothMul, OrthoKiaiZoomMul;
+            public float OrthoAggressiveness, OrthoZoomLeadMs, OrthoZoomSmooth, OrthoZoomMargin, OrthoOvershoot, OrthoLookaheadMs, OrthoGroupBreakGapMs, OrthoGroupGapMs, OrthoStreamGapMs, OrthoStreamSpacingOsu, OrthoKiaiSmoothMul, OrthoKiaiZoomMul;
             public float FallingRadius, FallingMaxTiltDeg, FallingZoom, FallingSmooth;
         }
         private static Defaults _defaults;
@@ -118,10 +125,13 @@ namespace OsuUnity.Gameplay
                 LookSensitivity = sceneDefaults.LookSensitivity;
                 ShowFollowPoints = sceneDefaults.ShowFollowPoints;
                 FollowPointScale = sceneDefaults.FollowPointScale;
+                HudScale = sceneDefaults.HudScale;
                 OrthoZoom = sceneDefaults.OrthoZoom;
                 OrthoZoomLeadMs = sceneDefaults.OrthoZoomLeadMs;
                 OrthoZoomSmooth = sceneDefaults.OrthoZoomSmooth;
                 OrthoZoomMargin = sceneDefaults.OrthoZoomMargin;
+                OrthoOvershoot = sceneDefaults.OrthoOvershoot;
+                OrthoLookaheadMs = sceneDefaults.OrthoLookaheadMs;
                 OrthoAggressiveness = sceneDefaults.OrthoAggressiveness;
                 OrthoGroupTargetCount = sceneDefaults.OrthoGroupTargetCount;
                 OrthoGroupMaxCount = sceneDefaults.OrthoGroupMaxCount;
@@ -155,10 +165,13 @@ namespace OsuUnity.Gameplay
                 BackgroundDim = BackgroundDim,
                 ShowFollowPoints = ShowFollowPoints,
                 FollowPointScale = FollowPointScale,
+                HudScale = HudScale,
                 OrthoZoom = OrthoZoom,
                 OrthoZoomLeadMs = OrthoZoomLeadMs,
                 OrthoZoomSmooth = OrthoZoomSmooth,
                 OrthoZoomMargin = OrthoZoomMargin,
+                OrthoOvershoot = OrthoOvershoot,
+                OrthoLookaheadMs = OrthoLookaheadMs,
                 OrthoAggressiveness = OrthoAggressiveness,
                 OrthoGroupTargetCount = OrthoGroupTargetCount,
                 OrthoGroupMaxCount = OrthoGroupMaxCount,
@@ -198,10 +211,13 @@ namespace OsuUnity.Gameplay
             BackgroundDim = PlayerPrefs.GetFloat(Prefix + "bgdim", BackgroundDim);
             ShowFollowPoints = PlayerPrefs.GetInt(Prefix + "fp", ShowFollowPoints ? 1 : 0) != 0;
             FollowPointScale = PlayerPrefs.GetFloat(Prefix + "fpscale", FollowPointScale);
+            HudScale = PlayerPrefs.GetFloat(Prefix + "hudscale", HudScale);
             OrthoZoom = PlayerPrefs.GetInt(Prefix + "ozoom", OrthoZoom ? 1 : 0) != 0;
             OrthoZoomLeadMs = PlayerPrefs.GetFloat(Prefix + "ozlead", OrthoZoomLeadMs);
             OrthoZoomSmooth = PlayerPrefs.GetFloat(Prefix + "ozsmooth", OrthoZoomSmooth);
             OrthoZoomMargin = PlayerPrefs.GetFloat(Prefix + "ozmargin", OrthoZoomMargin);
+            OrthoOvershoot = PlayerPrefs.GetFloat(Prefix + "ozover", OrthoOvershoot);
+            OrthoLookaheadMs = PlayerPrefs.GetFloat(Prefix + "ozlookms", OrthoLookaheadMs);
             OrthoAggressiveness = PlayerPrefs.GetFloat(Prefix + "ozaggr", OrthoAggressiveness);
             OrthoGroupTargetCount = PlayerPrefs.GetInt(Prefix + "oztarget", OrthoGroupTargetCount);
             OrthoGroupMaxCount = PlayerPrefs.GetInt(Prefix + "ozmax", OrthoGroupMaxCount);
@@ -234,10 +250,13 @@ namespace OsuUnity.Gameplay
             PlayerPrefs.SetFloat(Prefix + "bgdim", BackgroundDim);
             PlayerPrefs.SetInt(Prefix + "fp", ShowFollowPoints ? 1 : 0);
             PlayerPrefs.SetFloat(Prefix + "fpscale", FollowPointScale);
+            PlayerPrefs.SetFloat(Prefix + "hudscale", HudScale);
             PlayerPrefs.SetInt(Prefix + "ozoom", OrthoZoom ? 1 : 0);
             PlayerPrefs.SetFloat(Prefix + "ozlead", OrthoZoomLeadMs);
             PlayerPrefs.SetFloat(Prefix + "ozsmooth", OrthoZoomSmooth);
             PlayerPrefs.SetFloat(Prefix + "ozmargin", OrthoZoomMargin);
+            PlayerPrefs.SetFloat(Prefix + "ozover", OrthoOvershoot);
+            PlayerPrefs.SetFloat(Prefix + "ozlookms", OrthoLookaheadMs);
             PlayerPrefs.SetFloat(Prefix + "ozaggr", OrthoAggressiveness);
             PlayerPrefs.SetInt(Prefix + "oztarget", OrthoGroupTargetCount);
             PlayerPrefs.SetInt(Prefix + "ozmax", OrthoGroupMaxCount);
@@ -272,10 +291,13 @@ namespace OsuUnity.Gameplay
             BackgroundDim = _defaults.BackgroundDim;
             ShowFollowPoints = _defaults.ShowFollowPoints;
             FollowPointScale = _defaults.FollowPointScale;
+            HudScale = _defaults.HudScale;
             OrthoZoom = _defaults.OrthoZoom;
             OrthoZoomLeadMs = _defaults.OrthoZoomLeadMs;
             OrthoZoomSmooth = _defaults.OrthoZoomSmooth;
             OrthoZoomMargin = _defaults.OrthoZoomMargin;
+            OrthoOvershoot = _defaults.OrthoOvershoot;
+            OrthoLookaheadMs = _defaults.OrthoLookaheadMs;
             OrthoAggressiveness = _defaults.OrthoAggressiveness;
             OrthoGroupTargetCount = _defaults.OrthoGroupTargetCount;
             OrthoGroupMaxCount = _defaults.OrthoGroupMaxCount;

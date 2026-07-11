@@ -17,6 +17,8 @@ design vision.
 3. **`INDEX.md`** — auto-generated per-file map of `Assets/Scripts`.
 4. **`docs/OPTIMIZATION.md`** — how to optimize the game (pooling, managers, batching).
 5. **`docs/osu-leniency.md`** — where gameplay must match real osu!/osu!lazer.
+6. **`docs/UI-DESIGN.md`** — UI & game design principles. Binding for any menu, HUD, or
+   interaction work; includes a checklist for new UI elements.
 
 ## "Continue the work" (parallel agents)
 
@@ -67,6 +69,15 @@ drawables.
   persisted/runtime in `GameSettings`. Add new tunables there, don't hardcode.
 - `Osu3DSettings` applies on session (re)start — press **R** in play mode to re-apply.
 - Entry point auto-spawns (`Bootstrap`), so pressing Play needs no scene wiring.
+
+## Game & UI design
+
+All UI/UX and game-feel decisions follow **`docs/UI-DESIGN.md`** (osu!lazer is the
+reference client). Priority order when principles conflict: **gameplay first** (never
+obstruct the playfield or move the camera from UI) → contrast/affordance → single-function
+clarity → persistent navigation (toolbar + shortcut + main-screen route) → keyboard-only
+operability. Every UI tunable is a setting; run the checklist at the end of that doc
+before adding any UI element.
 
 ## How to run
 

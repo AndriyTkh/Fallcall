@@ -64,11 +64,13 @@ namespace OsuUnity.Gameplay
                       ?? Shader.Find("Sprites/Default")
                       ?? Shader.Find("UI/Default");
             var mat = new Material(shader) { mainTexture = _rt };
-            // Position alone (localPosition.z == farDistance) doesn't guarantee the video draws behind
-            // everything: Sprites/Default & Unlit/Texture render in the transparent queue with ZWrite off,
-            // so they can paint over guide arrows / UI regardless of depth. Force the Background queue so
-            // all gameplay geometry and UI draw *after* (on top of) the backdrop.
-            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Background;
+            // Position alone (localPosition.z == farDistance) doesn't order this correctly: the fallback
+            // Sprites/Default renders in the transparent queue (3000) with ZWrite off, so it paints over the
+            // guide arrows / UI. But dropping it all the way to Background (1000) is too far — with ZWrite
+            // off the skybox pass then overwrites it and the video vanishes entirely. Park it at 2501: after
+            // the skybox + opaque geometry (so it stays visible), before the transparent gameplay layer
+            // (3000) so arrows and UI draw on top of it.
+            mat.renderQueue = 2501; // RenderQueue.GeometryLast (2500) + 1
             _quadRenderer = quadGo.GetComponent<MeshRenderer>();
             _quadRenderer.sharedMaterial = mat;
             _quadRenderer.enabled = false; // hidden until the video actually starts (offset may be > 0)

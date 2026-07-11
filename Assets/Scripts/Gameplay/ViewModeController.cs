@@ -208,16 +208,24 @@ namespace OsuUnity.Gameplay
         /// pause (so a group's actual size floats with map density; spinners stand alone). It classifies
         /// each group as Normal / Stream / Spinner and every frame pans+zooms the camera to frame the group
         /// that is currently being (or about to be) clicked:
-        ///  • <b>Normal</b> — a fixed rect covering the whole group (constant while it is clicked → the
-        ///    camera holds still; it only re-frames in the gap before the next group = "zoom between clicks").
+        ///  • <b>Normal</b> — a fixed rect covering the whole group's hit geometry (full slider paths, not
+        ///    just endpoints) plus every note coming within <see cref="GameSettings.OrthoLookaheadMs"/> after
+        ///    it so upcoming targets are visible before the shift, padded by the circle radius. Constant while
+        ///    clicked → the camera holds still; it re-frames in the gap before the next group.
         ///  • <b>Stream</b> — follows the cursor path along the stream, tightly zoomed.
         ///  • <b>Spinner</b> — a smooth zoom-in toward the centre over the spinner's duration.
         /// During <b>kiai</b> ("hyper") time each group's camera goes all-out — a shorter smoothing time
         /// (snappier, less transition cooldown) and a tighter, punchier frame (<see cref="GameSettings"/>
         /// Kiai muls).
-        /// Motion is <see cref="Vector3.SmoothDamp"/>/<see cref="Mathf.SmoothDamp"/>ed. All thresholds are
-        /// <see cref="GameSettings"/> knobs; groups are rebuilt each session (i.e. gap/stream tuning applies
-        /// on restart), the framing knobs (lead/smooth/margin) apply live.
+        /// Motion is a <see cref="Vector3.SmoothDamp"/>/<see cref="Mathf.SmoothDamp"/> chase with a
+        /// <b>constant</b> smoothing time (<see cref="GameSettings.OrthoZoomSmooth"/> alone) — deliberately
+        /// never sped up to "catch up", which reads as a disorienting snap. Predictiveness comes from timing,
+        /// not speed: the target retargets to a group the moment the previous group's last note is hit, so
+        /// the lazy camera gets the whole gap as runway, and generous framing (lookahead + margin) keeps
+        /// notes on screen even mid-glide. Snappier feel = a lower smoothing slider. An optional
+        /// <see cref="GameSettings.OrthoOvershoot"/> (default 0) aims slightly past the target to shave lag
+        /// without steady-state aim bias. All thresholds are <see cref="GameSettings"/> knobs; groups are
+        /// rebuilt each session (grouping/lookahead apply on restart), framing/motion apply live.
         /// </summary>
         private sealed class OrthoZoomer
         {
@@ -227,8 +235,10 @@ namespace OsuUnity.Gameplay
             {
                 public int Start, End;      // ms
                 public Kind Kind;
-                public Rect Bounds;         // osu-space bbox of the group's positions
+                public Rect Bounds;         // osu-space bbox of the group's own hit geometry (slider paths incl.)
                 public Vector2 Center;      // osu-space bbox centre
+                public Rect FrameBounds;    // Bounds grown to also include the next group's first note(s)
+                public Vector2 FrameCenter; // FrameBounds centre (what the Normal frame targets)
                 public float AvgSpacingOsu; // mean object-to-object distance (stream sizing)
                 public int First, Last;     // indices into _objs (inclusive) for stream follow
                 public bool Kiai;           // group falls in kiai ("hyper") time → all-out camera
@@ -296,6 +306,43 @@ namespace OsuUnity.Gameplay
                     _groups.Add(MakeGroup(start, i - 1, streamGap, streamSpace));
                     start = i;
                 }
+
+                // Lookahead: grow each group's frame to also include every note the player must click within
+                // OrthoLookaheadMs after the group ends, so upcoming targets are already on screen before the
+                // camera shifts to them. Time-based (not a fixed note count) so it adapts to density — on a
+                // fast section it reaches further ahead in notes, on a slow one fewer. Stops at a spinner.
+                float lookMs = Mathf.Max(0f, GameSettings.OrthoLookaheadMs);
+                for (int gi = 0; gi < _groups.Count; gi++)
+                {
+                    Group g = _groups[gi];
+                    if (lookMs <= 0f || g.Kind == Kind.Spinner) continue;
+
+                    // Start from the current group's own bbox, then union in every note coming within the
+                    // window. The frame stays CENTRED on the current group (g.Center) and only grows — so the
+                    // notes being clicked now stay put/centred and the upcoming ones appear toward the edge
+                    // they arrive from, rather than the centre sliding off onto the future notes.
+                    float minX = g.Bounds.xMin, minY = g.Bounds.yMin, maxX = g.Bounds.xMax, maxY = g.Bounds.yMax;
+                    float limit = g.End + lookMs;
+                    bool grew = false;
+                    for (int k = g.Last + 1; k < _objs.Count; k++)
+                    {
+                        var ho = _objs[k];
+                        if (ho is Spinner || ho.StartTime > limit) break;
+                        Vector2 p = ho.Position;
+                        if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+                        if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+                        grew = true;
+                    }
+                    if (grew)
+                    {
+                        Vector2 c = g.Center;                       // keep the current group centred
+                        float halfX = Mathf.Max(c.x - minX, maxX - c.x);
+                        float halfY = Mathf.Max(c.y - minY, maxY - c.y);
+                        g.FrameBounds = Rect.MinMaxRect(c.x - halfX, c.y - halfY, c.x + halfX, c.y + halfY);
+                        g.FrameCenter = c;
+                        _groups[gi] = g;
+                    }
+                }
             }
 
             private Group MakeGroup(int first, int last, float streamGap, float streamSpace)
@@ -308,6 +355,18 @@ namespace OsuUnity.Gameplay
                     if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
                     if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
                 }
+                // A slider's body can bow far outside the head→tail segment, so frame its whole sampled
+                // path, not just the endpoints — otherwise the curve gets clipped.
+                void ExtendObject(HitObject ho)
+                {
+                    Extend(ho.Position);
+                    Extend(ho.EndPosition);
+                    if (ho is Slider sl && sl.Path != null)
+                    {
+                        var pts = sl.Path.Points;
+                        for (int k = 0; k < pts.Count; k++) Extend(sl.Position + pts[k]);
+                    }
+                }
 
                 bool hasSpinner = false;
                 float spacingSum = 0f; int spacingCount = 0;
@@ -316,8 +375,7 @@ namespace OsuUnity.Gameplay
                 {
                     var ho = _objs[i];
                     if (ho is Spinner) hasSpinner = true;
-                    Extend(ho.Position);
-                    Extend(ho.EndPosition);
+                    ExtendObject(ho);
                     if (i > first)
                     {
                         float spacing = Vector2.Distance(_objs[i - 1].EndPosition, ho.Position);
@@ -329,6 +387,8 @@ namespace OsuUnity.Gameplay
 
                 g.Bounds = Rect.MinMaxRect(minX, minY, maxX, maxY);
                 g.Center = new Vector2((minX + maxX) * 0.5f, (minY + maxY) * 0.5f);
+                g.FrameBounds = g.Bounds;      // default; lookahead pass may grow it in Build
+                g.FrameCenter = g.Center;
                 g.AvgSpacingOsu = spacingCount > 0 ? spacingSum / spacingCount : 0f;
                 g.Kind = hasSpinner ? Kind.Spinner : (stream ? Kind.Stream : Kind.Normal);
                 g.Kiai = _map != null && _map.IsKiaiAt(g.Start);
@@ -342,24 +402,45 @@ namespace OsuUnity.Gameplay
             {
                 if (_pf == null || _cam == null) return;
 
+                float time = (float)timeMs;
                 Vector2 centerOsu;
                 float size;
+                bool haveGroup;
                 if (!GameSettings.OrthoZoom || _groups.Count == 0)
                 {
                     centerOsu = new Vector2(Playfield.Width * 0.5f, Playfield.Height * 0.5f);
                     size = FullFieldSize;
                     _activeKiai = false;
+                    haveGroup = false;
                 }
                 else
                 {
-                    Desired((float)timeMs, out centerOsu, out size);   // also sets _activeKiai
+                    Desired(time, out centerOsu, out size);   // also sets _activeKiai / _activeStart
+                    haveGroup = true;
                 }
 
                 Vector3 targetPos = _pf.ToWorld(centerOsu, 0f) - _pf.transform.forward * 10f;
-                // Kiai ("hyper"): shorten the transition cooldown so the camera snaps harder.
+
+                // Smoothing is CONSTANT — the slider alone sets the camera's laziness, so the motion always
+                // has the same, predictable, trackable character (never a speed-up/snap to "catch up", which
+                // throws players off). Predictiveness comes from *when* the target changes, not how fast the
+                // camera chases it: the target retargets to a group the instant the previous group's last
+                // note is hit (see ActiveIndex), giving the lazy camera the whole gap of runway; generous
+                // framing (lookahead + margin) keeps notes on screen even mid-glide. Want snappy? Lower the
+                // smoothing slider. Kiai applies a constant (not dynamic) tighter multiplier.
                 float smooth = Mathf.Max(0.02f, GameSettings.OrthoZoomSmooth);
                 if (_activeKiai) smooth *= Mathf.Clamp(GameSettings.OrthoKiaiSmoothMul, 0.05f, 1f);
-                _cam.transform.position = Vector3.SmoothDamp(_cam.transform.position, targetPos, ref _posVel, smooth);
+                smooth = Mathf.Max(0.02f, smooth);
+
+                // Optional predictive lead: aim slightly past the target along the travel vector to shave
+                // arrival lag. The term is proportional to the remaining distance so it vanishes at rest —
+                // no steady-state aim bias while clicking. Default 0 (pure, maximally smooth SmoothDamp).
+                Vector3 aim = targetPos;
+                float overshoot = Mathf.Clamp(GameSettings.OrthoOvershoot, 0f, 0.6f);
+                if (haveGroup && overshoot > 0f)
+                    aim = targetPos + (targetPos - _cam.transform.position) * overshoot;
+
+                _cam.transform.position = Vector3.SmoothDamp(_cam.transform.position, aim, ref _posVel, smooth);
                 _cam.orthographicSize = Mathf.SmoothDamp(_cam.orthographicSize, size, ref _sizeVel, smooth);
             }
 
@@ -387,12 +468,16 @@ namespace OsuUnity.Gameplay
                         size = Mathf.Clamp(g.AvgSpacingOsu * ps * 1.6f + pad, minSize, full);
                         break;
 
-                    default: // Normal — fixed rect over the whole click group.
-                        centerOsu = g.Center;
-                        float halfW = g.Bounds.width * 0.5f * ps + pad;
-                        float halfH = g.Bounds.height * 0.5f * ps + pad;
+                    default: // Normal — fixed rect over the whole group + the next group's first note(s).
+                        centerOsu = g.FrameCenter;
+                        float halfW = g.FrameBounds.width * 0.5f * ps + pad;
+                        float halfH = g.FrameBounds.height * 0.5f * ps + pad;
                         float aspect = _cam.aspect > 0.01f ? _cam.aspect : 1.777f;
-                        size = Mathf.Clamp(Mathf.Max(halfH, halfW / aspect), minSize, full);
+                        // Frame the group's OWN geometry — slider bodies/tails bow outside the 512x384
+                        // playfield and lookahead pulls in the next group's notes, so the needed size
+                        // routinely exceeds `full`. Clamping down to `full` clipped whatever spilled past
+                        // the field edge (usually a slider tail); only cap far above it to bound pathology.
+                        size = Mathf.Clamp(Mathf.Max(halfH, halfW / aspect), minSize, full * 2.5f);
                         break;
                 }
 

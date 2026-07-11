@@ -50,6 +50,12 @@ namespace OsuUnity.Gameplay
         [Range(0.3f, 3f)]
         public float FollowPointScale = 1f;
 
+        [Header("HUD")]
+        [Tooltip("Skinned HUD size multiplier — scales the score/combo/accuracy fonts and health bar " +
+                 "(applied live).")]
+        [Range(0.4f, 2.5f)]
+        public float HudScale = 1f;
+
         [Header("2D-ortho dynamic zoom (Ortho2D view mode — press Tab)")]
         [Tooltip("Pan+zoom the orthographic camera to frame the upcoming click group (follow streams, " +
                  "zoom into spinners). Off = static full-field framing.")]
@@ -60,13 +66,24 @@ namespace OsuUnity.Gameplay
         [Range(0f, 1500f)]
         public float OrthoZoomLeadMs = 350f;
 
-        [Tooltip("Pan+zoom smoothing time in seconds (SmoothDamp). Higher = lazier camera (applied live).")]
+        [Tooltip("Pan+zoom smoothing time in seconds (SmoothDamp) — the sole, constant camera-laziness " +
+                 "control. Higher = smoother/lazier, lower = snappier. Never sped up dynamically (applied live).")]
         [Range(0.02f, 1f)]
         public float OrthoZoomSmooth = 0.22f;
 
         [Tooltip("Padding kept around a framed group, in circle radii (applied live).")]
         [Range(0f, 6f)]
         public float OrthoZoomMargin = 1.6f;
+
+        [Tooltip("Opt-in predictive lead: aim the pan slightly past its target to shave arrival lag; decays " +
+                 "to zero at rest so aim isn't thrown off while clicking. 0 = pure smooth (applied live).")]
+        [Range(0f, 0.6f)]
+        public float OrthoOvershoot = 0f;
+
+        [Tooltip("Also keep every note coming within this many ms after a group in frame, so upcoming " +
+                 "targets are visible before the camera shifts. 0 = off (applied on restart).")]
+        [Range(0f, 1500f)]
+        public float OrthoLookaheadMs = 400f;
 
         [Tooltip("Grouping aggressiveness. 0 = calm, big groups (Target/Max counts below). 1 = hyperactive: " +
                  "the camera cuts to every native click-group in the map. Scales the counts toward tiny " +

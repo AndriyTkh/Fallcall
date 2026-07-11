@@ -1,7 +1,7 @@
 # STRUCTURE
 
-> **Human-curated.** This is the source-of-truth vision doc. Agents use/edit it. This is the document that is viewed by humans the most.
-> edit it. When code and this file disagree about *intent*, this file wins — update the
+> **Human-curated.** This is the source-of-truth vision doc, and the document humans read
+> most. Agents use/edit it. When code and this file disagree about *intent*, this file wins — update the
 > code or flag the drift. (For the current *state* of the code, see `PLAN.md`; for a
 > per-file map, see `INDEX.md`.)
 
@@ -91,20 +91,79 @@ during a map as a choreographed effect and/or gameplay change.
 
 ---
 
-## 5. Current implementation vs. vision
 
-| Area | Now | Vision |
-| --- | --- | --- |
-| Projection surface | **Cylinder** wall (`Playfield.cs`, `Curved`) | **Sphere** 120°×90° chunk |
-| Camera | First-person mouse-look, clamped to wall extents | Free horizontal, ±90° vertical, FOV 90 |
-| Modes | Cylinder only (+ flat 2D fallback) | Sphere / 2D-ortho / Falling, switchable mid-map |
-| Chunk motion | Static | Sliding + curve-driven transitions |
-| Zoom logic | None | Stream/spinner/group-aware ortho zoom |
-| Element facing | Billboard to camera (partial) | Full camera-aligned |
-| Falling mode | Not started | Camera-on-sphere projection |
-| Visual "fall" | Not started | Fast geometric space backdrop |
 
-See `PLAN.md` for concrete task tracking and next steps.
+## 5. Environment, choreography & authoring
+
+The camera modes (§3) are the mechanics. This section is the **show** they perform inside,
+and **how a map decides what happens when**.
+
+### 5.1 Atmosphere / visual language
+- **Reference:** *Alto's Odyssey* — low-poly, pastel, minimalist; **mostly grey** with extra
+  color pulled **live from the beatmap** (combo colors → scene tint). Peak / TABS are weaker
+  secondary refs. Goal is *atmosphere*, even when the beatmap's own music/feel fully overrides it.
+- **World fiction:** you stand on a pillar high in the sky, floor of simple grey cubism, a
+  clear **day/night-cycle** sky above, clouds around/below the tower. Later: lighting passes.
+- Built with the procedural/low-poly fallback already in the pipeline (built-in RP). No
+  external art required to prototype.
+- **Impact frames:** noted, **not built** — stutter fights rhythm-game timing feel.
+
+### 5.2 The choreographed arc (illustrative, NOT a fixed script)
+A representative run: ortho opener while the music sets up → effects ramp with intensity
+(wind, lingering click particles, cursor cross-lines) → **drop**: title card + floor breaks →
+**Falling/Sphere** mode, circles appear, tower interior with holes to the sky outside → clouds
+approach (**must NOT reduce visibility** — clouds sit around/below, camera stays in clear air) →
+**Falling mode** where decorations sweep close for a *dodging* feel → song ends → **fade to
+black + score**.
+- This arc is **one possible output** of the authoring system below — **not** hardcoded.
+  Real maps vary wildly in length and structure; a fixed 5-stage script would fit most maps
+  badly. The arc emerges from markers + segmentation, per map.
+- **Falling-mode decorations are pure VE:** they never obstruct gameplay. **Circles render on
+  top of everything.** The "dodge" is camera motion + peripheral geometry, never anything
+  crossing the read path. No damage; destruction-on-crush is a future idea.
+
+### 5.3 Authoring: one merged event track, three sources
+Modes and visual effects are driven by a single **event track** (each event: `time`, `type`,
+`param` — where `type` is a mode-switch or a VE toggle/level). The track is assembled by
+**merging three sources, highest priority first; each fills what the previous left blank**:
+
+1. **Game-native markers** — authored in Fallcall's own editor (§5.5). Includes mode segments
+   and VE markers. Highest authority.
+2. **Beatmap-author markers** — signals the mapper already left: **kiai, SV changes, combo
+   colors, breaks**. Usually sparse (often 1–2 kiai for a whole map, frequently **none** —
+   kiai is *not* assumed present). Expanded into fuller structure via the algorithmic pool.
+3. **Generated from song** — for everything still unmarked (§5.4).
+
+Gameplay reads the **merged** track and does not care which source authored each event.
+
+### 5.4 Generated tier: segmentation + constrained mode pick
+- **Segment** the map at boundaries = breaks ∪ large note-density changes ∪ (kiai edges when
+  present). Then **weighted-pick a mode per segment**.
+- **Not pure random** — picks run under constraints: minimum segment length per mode (no
+  Falling in a 2 s window), opener rules, no rapid mode ping-pong. The constraint layer is the
+  real design work; the RNG is trivial.
+- **Two seed modes:**
+  - **Rated** — seed derived from the **beatmap MD5 hash** (stable, unique per difficulty,
+    offline-derivable) → identical choreography for everyone.
+  - **Free** — user-entered/regenerated seed, overrides the hash.
+
+### 5.5 Editor (its own later wave)
+Timeline-based, in-engine. Scope: play the **song** and the **circles**; **scripted autoplay**
+(perfect follow + click) to watch camera/cursor drift against §4; a **VE-marker track** (toggle
+effects on/off/level from a side panel); a **mode-marker track** (incl. choosing to start on the
+floor for scripted openers). **No click/hit-object editing in v1.**
+
+### 5.6 Authored data lives in a **sidecar**, never in the `.osu`
+Fallcall data is written to a sidecar keyed by the beatmap MD5 hash (e.g.
+`<hash>.fallcall`), **not appended to the `.osu`**. Appending would change the map's hash —
+which breaks the rated seed (hash-keyed), re-import/dedup, and corrupts the user's original
+beatmap. Sidecar keeps the original untouched and the hash stable.
+
+### 5.7 Pacing helpers already present in `.osu`
+- **Skip intro:** derive from first-hit-object time − `AudioLeadIn` (no authoring needed).
+- **Rest / break timer:** `.osu` `[Events]` **breaks are already parsed** (`BreakPeriod`);
+  show a countdown during them. Auto-fallback: treat any gap > ~3 s as a rest when the map
+  declares no break. Not yet wired to gameplay/VE.
 
 ---
 
@@ -141,3 +200,23 @@ entirely in `Playfield.cs` because gameplay never touches world coordinates dire
 
 Because the whole design is "everything is a setting for testing", new projection/camera/zoom
 parameters should be added to these two surfaces rather than hardcoded.
+
+---
+
+## 8. UI & game-feel vision
+
+Full principles + the new-element checklist live in **`docs/UI-DESIGN.md`**. The vision in
+brief:
+
+- **Gameplay first.** UI, HUD, and effects never obstruct the playfield, add clutter, or move
+  the camera. In 3D this is stricter: UI is **screen-space** (never on the sphere with hit
+  objects) and the **center of the screen is sacred** — HUD hugs the edges. Mode switches fade,
+  never pop. The player is never locked out of control (pause is the only interruption).
+- **Own identity, borrowed behavior.** osu!lazer is the reference for *how UI should behave* —
+  we adopt its interaction **principles** (settings openable anywhere, live-apply, search-as-
+  you-type, card carousel, per-setting reset, keyboard-first). We do **not** copy its **look**:
+  Fallcall has its own visual language built to express the falling-geometric-space theme.
+  Form is ours; proven function is fair game. (This form-vs-function split is `UI-DESIGN.md` §0.)
+- **Contrast, single-function clarity, persistent navigation, keyboard-first accessibility** are
+  the other pillars — osu! is often played mouseless, so full keyboard operation is required.
+- Every UI tunable is a **setting** (§7), same testing-first rule as the rest of the project.
