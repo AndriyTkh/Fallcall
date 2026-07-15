@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace OsuUnity.Gameplay
@@ -86,6 +88,87 @@ namespace OsuUnity.Gameplay
         // health bar so the on-screen HUD can be tuned per display.
         public static float HudScale = 1f;
 
+        // Menu/overlay UI scale (applied live via UI.UiScaler). Multiplies the screen-space UI kit
+        // (menus, settings, song select) independently of the in-play HUD. 1 = reference sizing.
+        public static float UiScale = 1f;
+
+        // Raised whenever the settings overlay (U2) edits a value, so any live UI can refresh. The
+        // overlay pushes runtime targets itself; this is the notify hook for future listeners.
+        public static event Action Changed;
+        public static void RaiseChanged() => Changed?.Invoke();
+
+        // ---- Keybinds (U2) --------------------------------------------------------------------------
+        // A rebindable input: a key plus optional modifiers. Gameplay keys (A/S/D, Tab, Esc, R) are
+        // still read directly by their systems for now; the store + overlay give a single place to
+        // rebind with conflict detection, and the settings overlay's own open shortcut honours it.
+        // Wiring the gameplay systems to read this store is a later migration (see PLAN).
+        public struct Keybind
+        {
+            public KeyCode Key;
+            public bool Ctrl, Shift, Alt;
+
+            public Keybind(KeyCode key, bool ctrl = false, bool shift = false, bool alt = false)
+            { Key = key; Ctrl = ctrl; Shift = shift; Alt = alt; }
+
+            private static bool CtrlHeld => Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
+            private static bool ShiftHeld => Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+            private static bool AltHeld => Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt);
+
+            /// <summary>True on the frame this exact key+modifier chord is pressed.</summary>
+            public bool DownThisFrame()
+                => Key != KeyCode.None && Input.GetKeyDown(Key)
+                   && Ctrl == CtrlHeld && Shift == ShiftHeld && Alt == AltHeld;
+
+            public bool SameChord(Keybind o) => Key == o.Key && Ctrl == o.Ctrl && Shift == o.Shift && Alt == o.Alt;
+
+            public string Display()
+            {
+                string s = "";
+                if (Ctrl) s += "Ctrl+";
+                if (Shift) s += "Shift+";
+                if (Alt) s += "Alt+";
+                return s + (Key == KeyCode.None ? "—" : Key.ToString());
+            }
+
+            public string Serialize() => $"{(int)Key}:{(Ctrl ? 1 : 0)}{(Shift ? 1 : 0)}{(Alt ? 1 : 0)}";
+
+            public static Keybind Parse(string raw, Keybind fallback)
+            {
+                if (string.IsNullOrEmpty(raw)) return fallback;
+                int colon = raw.IndexOf(':');
+                if (colon <= 0 || colon + 3 >= raw.Length + 1) return fallback;
+                if (!int.TryParse(raw.Substring(0, colon), out int key)) return fallback;
+                string mods = raw.Substring(colon + 1);
+                bool ctrl = mods.Length > 0 && mods[0] == '1';
+                bool shift = mods.Length > 1 && mods[1] == '1';
+                bool alt = mods.Length > 2 && mods[2] == '1';
+                return new Keybind((KeyCode)key, ctrl, shift, alt);
+            }
+        }
+
+        public struct KeybindDef
+        {
+            public string Id, Label;
+            public Keybind Default;
+            public KeybindDef(string id, string label, Keybind def) { Id = id; Label = label; Default = def; }
+        }
+
+        /// <summary>The rebindable actions surfaced by the settings overlay's Input section.</summary>
+        public static readonly KeybindDef[] KeybindDefs =
+        {
+            new KeybindDef("open_settings", "Open settings", new Keybind(KeyCode.O, ctrl: true)),
+            new KeybindDef("pause",         "Pause / back",   new Keybind(KeyCode.Escape)),
+            new KeybindDef("restart",       "Restart map",    new Keybind(KeyCode.R)),
+            new KeybindDef("cycle_view",    "Cycle view mode",new Keybind(KeyCode.Tab)),
+            new KeybindDef("hit_left",      "Hit (left)",     new Keybind(KeyCode.A)),
+            new KeybindDef("hit_right",     "Hit (right)",    new Keybind(KeyCode.S)),
+        };
+
+        /// <summary>Live keybind map (id → chord). Populated by <see cref="Load"/>.</summary>
+        public static readonly Dictionary<string, Keybind> Keybinds = new Dictionary<string, Keybind>();
+
+        public static Keybind GetBind(string id) => Keybinds.TryGetValue(id, out var k) ? k : default;
+
         private static bool _loaded;
 
         // Snapshot of the defaults (built-in or scene-provided) captured at first load, so Reset can
@@ -101,6 +184,7 @@ namespace OsuUnity.Gameplay
             public bool ShowFollowPoints;
             public float FollowPointScale;
             public float HudScale;
+            public float UiScale;
             public bool OrthoZoom;
             public int OrthoGroupTargetCount, OrthoGroupMaxCount;
             public float OrthoAggressiveness, OrthoZoomLeadMs, OrthoZoomSmooth, OrthoZoomMargin, OrthoOvershoot, OrthoLookaheadMs, OrthoGroupBreakGapMs, OrthoGroupGapMs, OrthoStreamGapMs, OrthoStreamSpacingOsu, OrthoKiaiSmoothMul, OrthoKiaiZoomMul;
@@ -166,6 +250,7 @@ namespace OsuUnity.Gameplay
                 ShowFollowPoints = ShowFollowPoints,
                 FollowPointScale = FollowPointScale,
                 HudScale = HudScale,
+                UiScale = UiScale,
                 OrthoZoom = OrthoZoom,
                 OrthoZoomLeadMs = OrthoZoomLeadMs,
                 OrthoZoomSmooth = OrthoZoomSmooth,
@@ -186,6 +271,10 @@ namespace OsuUnity.Gameplay
                 FallingZoom = FallingZoom,
                 FallingSmooth = FallingSmooth,
             };
+
+            // Keybinds: seed defaults (always), so both the first-run persist path and the normal path
+            // below start from a complete map; the normal path then overrides from saved prefs.
+            foreach (var d in KeybindDefs) Keybinds[d.Id] = d.Default;
 
             // First run on a build whose defaults changed: adopt the new defaults and persist them,
             // rather than letting stale saved values from an older default set mask them.
@@ -212,6 +301,7 @@ namespace OsuUnity.Gameplay
             ShowFollowPoints = PlayerPrefs.GetInt(Prefix + "fp", ShowFollowPoints ? 1 : 0) != 0;
             FollowPointScale = PlayerPrefs.GetFloat(Prefix + "fpscale", FollowPointScale);
             HudScale = PlayerPrefs.GetFloat(Prefix + "hudscale", HudScale);
+            UiScale = PlayerPrefs.GetFloat(Prefix + "uiscale", UiScale);
             OrthoZoom = PlayerPrefs.GetInt(Prefix + "ozoom", OrthoZoom ? 1 : 0) != 0;
             OrthoZoomLeadMs = PlayerPrefs.GetFloat(Prefix + "ozlead", OrthoZoomLeadMs);
             OrthoZoomSmooth = PlayerPrefs.GetFloat(Prefix + "ozsmooth", OrthoZoomSmooth);
@@ -231,6 +321,12 @@ namespace OsuUnity.Gameplay
             FallingMaxTiltDeg = PlayerPrefs.GetFloat(Prefix + "falltilt", FallingMaxTiltDeg);
             FallingZoom = PlayerPrefs.GetFloat(Prefix + "fallzoom", FallingZoom);
             FallingSmooth = PlayerPrefs.GetFloat(Prefix + "fallsmooth", FallingSmooth);
+
+            foreach (var d in KeybindDefs)
+            {
+                string raw = PlayerPrefs.GetString(Prefix + "kb." + d.Id, "");
+                if (!string.IsNullOrEmpty(raw)) Keybinds[d.Id] = Keybind.Parse(raw, d.Default);
+            }
         }
 
         public static void Save()
@@ -251,6 +347,7 @@ namespace OsuUnity.Gameplay
             PlayerPrefs.SetInt(Prefix + "fp", ShowFollowPoints ? 1 : 0);
             PlayerPrefs.SetFloat(Prefix + "fpscale", FollowPointScale);
             PlayerPrefs.SetFloat(Prefix + "hudscale", HudScale);
+            PlayerPrefs.SetFloat(Prefix + "uiscale", UiScale);
             PlayerPrefs.SetInt(Prefix + "ozoom", OrthoZoom ? 1 : 0);
             PlayerPrefs.SetFloat(Prefix + "ozlead", OrthoZoomLeadMs);
             PlayerPrefs.SetFloat(Prefix + "ozsmooth", OrthoZoomSmooth);
@@ -270,6 +367,9 @@ namespace OsuUnity.Gameplay
             PlayerPrefs.SetFloat(Prefix + "falltilt", FallingMaxTiltDeg);
             PlayerPrefs.SetFloat(Prefix + "fallzoom", FallingZoom);
             PlayerPrefs.SetFloat(Prefix + "fallsmooth", FallingSmooth);
+            foreach (var d in KeybindDefs)
+                PlayerPrefs.SetString(Prefix + "kb." + d.Id,
+                    (Keybinds.TryGetValue(d.Id, out var k) ? k : d.Default).Serialize());
             PlayerPrefs.Save();
         }
 
@@ -292,6 +392,7 @@ namespace OsuUnity.Gameplay
             ShowFollowPoints = _defaults.ShowFollowPoints;
             FollowPointScale = _defaults.FollowPointScale;
             HudScale = _defaults.HudScale;
+            UiScale = _defaults.UiScale;
             OrthoZoom = _defaults.OrthoZoom;
             OrthoZoomLeadMs = _defaults.OrthoZoomLeadMs;
             OrthoZoomSmooth = _defaults.OrthoZoomSmooth;
@@ -311,6 +412,7 @@ namespace OsuUnity.Gameplay
             FallingMaxTiltDeg = _defaults.FallingMaxTiltDeg;
             FallingZoom = _defaults.FallingZoom;
             FallingSmooth = _defaults.FallingSmooth;
+            foreach (var d in KeybindDefs) Keybinds[d.Id] = d.Default;
             Save();
         }
     }

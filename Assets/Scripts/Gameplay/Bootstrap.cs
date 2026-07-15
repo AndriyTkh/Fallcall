@@ -1,8 +1,10 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using OsuUnity.Beatmaps;
 using OsuUnity.Skinning;
+using OsuUnity.UI;
 using OsuUnity.Util;
 using UnityEngine;
 
@@ -17,13 +19,23 @@ namespace OsuUnity.Gameplay
     /// </summary>
     public sealed class Bootstrap : MonoBehaviour
     {
-        private enum State { Scanning, Menu, Loading, Playing }
+        private enum State { Scanning, Menu, SongSelect, Loading, Playing }
         private State _state = State.Scanning;
+
+        /// <summary>
+        /// Seam for the U2 settings overlay: when that block lands, its overlay assigns this hook and the
+        /// Settings route opens it. Until then the route shows a toast (no dead button, §1.3). Kept here
+        /// so U2 can wire in without editing <see cref="Bootstrap"/> (which only U3 owns).
+        /// </summary>
+        public static Action OpenSettingsHook;
 
         private string _statusText = "Scanning for beatmaps...";
         private GUIStyle _label;
         private GameManager _game;
         private SongSelectUI _songSelect;
+        private MainScreen _main;
+        private NavBar _nav;
+        private bool _hasBeatmaps;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void AutoStart()
@@ -36,8 +48,20 @@ namespace OsuUnity.Gameplay
 
         private void Start()
         {
-            _songSelect = gameObject.AddComponent<SongSelectUI>();
+            // Prefer a developer-authored SongSelectUI placed in the scene (editor pivot); otherwise
+            // auto-spawn one so "press Play, no wiring" still holds with zero scene setup.
+            _songSelect = FindObjectOfType<SongSelectUI>();
+            if (_songSelect == null) _songSelect = gameObject.AddComponent<SongSelectUI>();
             _songSelect.PlaySelected += Select;
+            _songSelect.Hide();
+
+            _main = gameObject.AddComponent<MainScreen>();
+            _main.Navigate += OnNavigate;
+
+            _nav = gameObject.AddComponent<NavBar>();
+            _nav.Navigate += OnNavigate;
+            _nav.SetSuppressed(true);   // hidden until the menu is up
+
             StartCoroutine(Scan());
         }
 
@@ -51,8 +75,71 @@ namespace OsuUnity.Gameplay
 
             List<BeatmapSetInfo> sets = BeatmapLibrary.Scan();
             _songSelect.Populate(sets);
+            _hasBeatmaps = sets.Count > 0;
+            ShowMain();
+        }
+
+        // ----------------------------------------------------------------- navigation shell (U3)
+
+        private void ShowMain()
+        {
             _state = State.Menu;
+            _songSelect.Hide();
+            _main.SetHasBeatmaps(_hasBeatmaps);
+            _main.Show();
+            _nav.SetSuppressed(false);
+        }
+
+        private void ShowSongSelect()
+        {
+            _state = State.SongSelect;
+            _main.Hide();
             _songSelect.Show();
+            _nav.SetSuppressed(false);
+        }
+
+        // Routes raised by both the main screen and the toolbar (docs/UI-DESIGN §1.4 — same routes,
+        // three ways). This is the only place that decides what a route does.
+        private void OnNavigate(MenuRoute route)
+        {
+            switch (route)
+            {
+                case MenuRoute.Home:
+                    if (_state == State.SongSelect || _state == State.Menu) ShowMain();
+                    break;
+                case MenuRoute.Play:
+                    if (_hasBeatmaps && (_state == State.Menu || _state == State.SongSelect)) ShowSongSelect();
+                    else if (!_hasBeatmaps) _nav.Toast("No beatmaps yet — use Browse to download some.");
+                    break;
+                case MenuRoute.Browse:
+                    // v1: Browse routes into song select (download-by-id lives there); online mirror
+                    // search is U5, which shares the same card UI.
+                    if (_state == State.Menu || _state == State.SongSelect) ShowSongSelect();
+                    break;
+                case MenuRoute.Settings:
+                    if (OpenSettingsHook != null) OpenSettingsHook();
+                    else _nav.Toast("Settings overlay arrives in U2  ·  Ctrl+O");
+                    break;
+                case MenuRoute.Quit:
+                    Quit();
+                    break;
+            }
+        }
+
+        private void Update()
+        {
+            // Esc backs out of song select to the main screen (§1.4 — Esc = back, everywhere).
+            if (_state == State.SongSelect && !UiInput.Typing && Input.GetKeyDown(KeyCode.Escape))
+                ShowMain();
+        }
+
+        private static void Quit()
+        {
+#if UNITY_EDITOR
+            UnityEditor.EditorApplication.isPlaying = false;
+#else
+            Application.Quit();
+#endif
         }
 
         private void Select(BeatmapSetInfo set, BeatmapDifficultyInfo diff)
@@ -60,6 +147,7 @@ namespace OsuUnity.Gameplay
             Debug.Log($"[Bootstrap] PlaySelected: {set.SetName} [{diff.Version}] ({diff.OsuPath})");
             _state = State.Loading;
             _songSelect.Hide();
+            _nav.SetSuppressed(true);   // never obstruct the playfield during load/play (§1.1)
             _statusText = "Loading " + diff.Version + " ...";
             StartCoroutine(LoadAndPlay(diff));
         }
@@ -75,8 +163,7 @@ namespace OsuUnity.Gameplay
             {
                 Debug.LogError($"[Bootstrap] Failed to parse '{diff.OsuPath}': {e}");
                 _statusText = "Failed to parse this beatmap.\n[Esc] to go back.";
-                _state = State.Menu;
-                _songSelect.Show();
+                ShowSongSelect();
                 yield break;
             }
 
@@ -89,8 +176,7 @@ namespace OsuUnity.Gameplay
             if (clip == null)
             {
                 _statusText = "Failed to load audio.\nIf this is an .mp3, try converting it to .ogg.\n[Esc] to go back.";
-                _state = State.Menu;
-                _songSelect.Show();
+                ShowSongSelect();
                 yield break;
             }
 
@@ -113,9 +199,10 @@ namespace OsuUnity.Gameplay
             if (_game != null) Destroy(_game.gameObject);
             _game = null;
             _statusText = "";
-            _state = State.Menu;
-            _songSelect.Populate(BeatmapLibrary.Scan());
-            _songSelect.Show();
+            var sets = BeatmapLibrary.Scan();
+            _hasBeatmaps = sets.Count > 0;
+            _songSelect.Populate(sets);
+            ShowSongSelect();   // land back at song select for quick retry; Esc → main
         }
 
         // ----------------------------------------------------------------- skin
