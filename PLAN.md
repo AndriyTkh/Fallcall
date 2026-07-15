@@ -13,7 +13,7 @@
 > **History before this file:** the whole projection/gameplay/loader/video/HUD wave lives in
 > `docs/archive/PLAN-2026-07-11.md` (full Done + Activity logs). This file starts the **UI wave**.
 
-_Last updated: 2026-07-11_
+_Last updated: 2026-07-15_
 
 ---
 
@@ -116,7 +116,17 @@ merge-conflict. Then work.
   prefab is the authoring surface this pass. Pending in-editor compile/verify (no headless path).
 - **Docs**: `STRUCTURE.md` (vision), `INDEX.md` (auto-gen), `docs/OPTIMIZATION.md`,
   `docs/osu-leniency.md`, **`docs/UI-DESIGN.md`** (UI/design principles — binding for this wave),
-  `docs/osu-format.md` (RES1 format audit — feeds E1–E5; MD5-sidecar approach confirmed).
+  `docs/osu-format.md` (RES1 format audit — feeds E1–E5; MD5-sidecar approach confirmed),
+  **`docs/osu-api.md`** (RES2 online-API/mirror/CDN audit — binding for U6; answers auth,
+  download feasibility, rate-limit topology, and the exact preview-clip sync formula).
+- **Map browser (U6)**: **pass 1 code-complete, IN-PROGRESS, unverified at runtime** — see
+  `docs/U6-progress.md` (the resume point). `UI/Browser/` holds the screen + 5 helpers; the Browse route
+  now opens it; **Layout B frame** with the autoplay slot reserved but empty (**no preview this pass** —
+  human call). Compiles; the "done when" (an audibly playing demo) still needs an editor run. The
+  `AudioType.MPEG` → `OGGVORBIS` bug is **fixed** in both paths. Research (RES2) backs it: browser is
+  **credential-free**, `.osz` **must** come from mirrors (`*`-scope wall), autoplay preview **viable at
+  ~200 KB/map**. Also fixed en route: catboy search took `q=` and silently answered with its default
+  listing — the fallback mirror had never actually searched.
 - Most of the last wave is **pending in-editor verification** (no headless Unity path).
 
 ---
@@ -137,13 +147,17 @@ look/branding (form vs. function split, §0 of that doc).
 | **U3** | Main screen + navigation shell (toolbar, shortcut hints, routing) | DONE (2026-07-11) | U1 | new `UI/MainScreen.cs`, `UI/NavBar.cs`, `Bootstrap.cs` |
 | **U4** | Song-select refinement (audio preview, filters, keyboard nav, theming) | DONE (2026-07-11) | U1 | `SongSelectUI.cs` |
 | **U5** | Online beatmap search (mirror API, no account) into song select | DONE (2026-07-12) | U4 | `SongSelectUI.cs` (shares w/ U4 — serialize), `BeatmapDownloader.cs` |
+| **U6** | **Map browser** — two-layout browse screen + autoplay preview panel | IN-PROGRESS (opus, 2026-07-15) | U5, RES2 | new `UI/Browser/*.cs`; `BeatmapDownloader.cs`, `SongSelectUI.cs` (serialize w/ U4/U5), `Bootstrap.cs` (Browse route — U3 DONE) |
 
 **Overlap notes (read before claiming):**
 - **U1 is the keystone** — it defines the shared theme + widget kit every other block draws
   with. Land it first; U2–U4 all depend on it. It owns a fresh `UI/` namespace so it collides
   with nothing existing.
-- **U4 and U5 both edit `SongSelectUI.cs`** → serialize (whoever is `IN-PROGRESS` wins; the
-  other waits). U5 also owns `BeatmapDownloader.cs` for search endpoints.
+- **U4, U5 and U6 all touch `SongSelectUI.cs`** → serialize (whoever is `IN-PROGRESS` wins; the
+  other waits). U5/U6 also own `BeatmapDownloader.cs` for search/fetch endpoints.
+- **U6 should land its screen in a new `UI/MapBrowser.cs`**, not by growing the already-1283-line
+  `SongSelectUI.cs`. It reuses the U1 kit + `UiListView`/`UiRow`; it edits `SongSelectUI.cs` only
+  where the Online tab hands off (and to fix the `AudioType` bug, see U6 detail).
 - **U3 edits `Bootstrap.cs`** (currently drives `SongSelectUI` directly) — only U3 touches it.
 - Pause-menu settings currently live in `GameManager.DrawPauseMenu` (IMGUI). **U2 should not
   rip that out** in its first pass — build the new overlay alongside; migrating/retiring the
@@ -154,11 +168,14 @@ look/branding (form vs. function split, §0 of that doc).
 ```
 U1 (theme/kit) ─┬─▶ U2 (settings overlay)
                 ├─▶ U3 (main screen + nav)
-                └─▶ U4 (song select) ─▶ U5 (online search)
+                └─▶ U4 (song select) ─▶ U5 (online search) ─▶ U6 (map browser)
+                                                              ▲
+                                            RES2 (osu API audit) ┘
 ```
 
-**UI wave complete** — U1–U5 all `DONE` (pending in-editor verify). Next wave (E1–E5 + editor) is
-parked below; promote it when the human is ready.
+**U1–U5 `DONE`** (pending in-editor verify). **U6 (map browser) is the active block** — deps
+`U5` + `RES2` both `DONE`, so it is startable now. Next wave (E1–E5 + editor) stays parked below;
+promote it when the human is ready.
 
 ---
 
@@ -225,6 +242,45 @@ the existing `.osz` pipeline. Official osu! API v2 (OAuth) is a later optional a
 **Done when:** online search returns results in the shared card UI, downloads + imports a chosen
 set, no account required.
 
+### U6 — Map browser  _(needs U5, RES2)_
+A dedicated browse screen per `docs/UI-DESIGN.md`, backed by the API audit in **`docs/osu-api.md`
+(read it first — it resolves every auth/feasibility question below)**. Two layouts, both viable:
+
+- **Layout A — column list.** osu!-style multi-column result grid: filter + scroll, each row
+  offering play-audio-demo or download. Familiar, dense.
+- **Layout B — list + preview pane.** Single scrolling map column on the **left**; right side
+  splits **[top]** searchbar + filters, **[bottom]** map preview with the **autoplay panel**.
+
+**Autoplay preview (the headline feature — confirmed viable, `docs/osu-api.md` §1–2):** fetch the
+preview ogg (~100 KB) + the `.osu` (~90 KB, public, unauthenticated) and render ~10 s of real
+autoplay gameplay synced to the audio demo. **Never fetch the `.osz` to preview** (~13 MB). Exact
+sync relation — the preview clip is the song windowed to `[PreviewTime − 100 ms, +10000 ms]`:
+
+```
+songTimeMs = clipPlaybackMs + PreviewTime - 100
+```
+
+Reuse `BeatmapParser` (already parses `PreviewTime`) + route through `Playfield.ToWorld` — do not
+bake world math into the panel.
+
+**Decided (do not re-litigate — sourced in `docs/osu-api.md`):**
+- **Credential-free.** Mirror search + ppy CDN covers the whole browser. No OAuth in v1.
+- **Mirrors for `.osz` forever.** Official download needs the `*` scope, which no third-party app
+  can ever hold (§5). Not a preference — a wall.
+- **Never proxy mirror traffic.** Limits are per-IP/per-token; a proxy would collapse them into one
+  app-wide bucket (§6).
+- **"Default difficulty" doesn't exist server-side** (§3) — pick our own rule as an
+  `Osu3DSettings` tunable; suggested default = highest-star osu!std diff.
+
+**Bug to fix in this block:** `SongSelectUI.cs:999` streams the preview as `AudioType.MPEG`, but
+`b.ppy.sh/preview/{id}.mp3` is **Ogg/Vorbis despite the extension** — failure path is a silent
+`yield break`, so online previews are almost certainly dead today. → `AudioType.OGGVORBIS`.
+
+**Done when:** a browse screen ships one of the two layouts (human picks — see Open questions),
+autoplay preview plays ~10 s of synced real gameplay beside the audio demo, filters/sort +
+keyboard-only flow work per §2.2/§2.3, download→auto-import reuses the existing `.osz` pipeline,
+no account required, and previews actually audibly play (AudioType fix verified in-editor).
+
 ---
 
 ## Parallel research (startable now — read-only, no file overlap)
@@ -232,6 +288,7 @@ set, no account required.
 | ID | Block | Status | Deps | Owns (primary files) |
 | --- | --- | --- | --- | --- |
 | **RES1** | osu! `.osu` format audit — catalogue every field we can exploit | DONE (2026-07-11) | — | `docs/osu-format.md` |
+| **RES2** | osu! online API / mirror / preview-CDN audit — feeds U6 | DONE (2026-07-15) | — | `docs/osu-api.md` |
 
 ### RES1 — osu! format audit
 Full pass over the `.osu`/`.osz` format; produce `docs/osu-format.md` listing **everything we
@@ -243,6 +300,20 @@ video, background), `[General]` (`AudioLeadIn`, `PreviewTime`, `StackLeniency`, 
 **sidecar** approach (STRUCTURE §5.6). No code changes — research doc only. Feeds the next wave.
 **Done when:** `docs/osu-format.md` exists, maps each usable field to a potential Fallcall use
 (choreography / pacing / VE / seed), and flags parsed-vs-unused.
+
+### RES2 — osu! online API / mirror / preview-CDN audit
+What Fallcall can pull from osu!'s servers for the **map browser (U6)**, and what is structurally
+impossible. Everything verified against **live endpoints + `ppy/osu-web`/`ppy/osu` source**
+(2026-07-15) — the published docs are wrong or vague on several points, so **cite `docs/osu-api.md`,
+not the docs site**. Headline results: preview clip fully characterised (Ogg/Vorbis despite the
+`.mp3` extension, always 10.1 s, = song windowed to `[PreviewTime − 100 ms, +10000 ms]`, proven by
+FFT cross-correlation on two sets); `.osu` files are public → **autoplay preview costs ~200 KB/map,
+no `.osz`**; `.osz` download needs the `*` scope that no third-party app can hold → **mirrors are
+mandatory**; rate limits are **per-token / per-IP, not app-wide** → never proxy; official search
+works on client_credentials but adds nothing v1 needs. Also caught a live bug (`SongSelectUI.cs:999`
+`AudioType.MPEG` on a Vorbis stream) — assigned to U6.
+**Done when:** `docs/osu-api.md` exists, every claim sourced to a live check or a source line, and
+U6's auth/feasibility questions are all answered. ✔
 
 ---
 
@@ -282,6 +353,19 @@ RES1 lands. IDs provisional.
   (matches the download order); both public/unauthenticated. Preview audio/cover pulled from `b.ppy.sh` /
   `assets.ppy.sh`. **Still to confirm in-editor:** live mirror responses parse as expected (field names
   `accuracy`=OD, `drain`=HP, `total_length` sec) and CORS/host access is fine in a desktop Unity build.
+- **U6 — layout (human call, blocking the block):** **Layout A** (osu!-style multi-column list: filter,
+  scroll, per-row audio demo / download) vs **Layout B** (single map column left; right = searchbar +
+  filters on top, map preview + **autoplay panel** bottom). Layout B is what the RES2 autoplay finding
+  unlocks; A is the safer/denser default. Pick one before claiming U6.
+- **U6 — "default difficulty" rule (needs a default proposed):** no server-side default exists
+  (`docs/osu-api.md` §3). Proposal: **highest-star osu!std diff**, as an `Osu3DSettings` tunable.
+- **U6 — open (decides whether we ever need credentials):** do mirror search filters match the official
+  set (star range / genre / status / language)? If they're weak, adding client_credentials is an
+  isolated change that costs nothing app-wide (`docs/osu-api.md` §6–7). Unverified.
+- **Release-time credentials (resolved 2026-07-15, human asked):** login was considered for map search
+  and **rejected for v1** — client_credentials already unlocks every real search filter, a user login
+  only adds favourites/played/recommended, it does **not** unlock downloads, and it does **not** remove
+  the shipped client_secret (osu-web issues a secret for every app; no public/PKCE client type exists).
 - Carried over from prior wave — **A:** default sphere radius + chunk degrees for "normal" feel;
   mode-switch trigger source (authored / heuristic / manual); stream-detection thresholds.
 - **E2:** the constraint set for the generated mode-pick (min segment length per mode, opener
@@ -304,6 +388,24 @@ RES1 lands. IDs provisional.
 
 _One line per claim/finish so parallel sessions see who's on what. Newest first._
 
+- 2026-07-15 — **U6 pass 1 code-complete, still `IN-PROGRESS`** (opus): `UI/Browser/MapBrowser.cs` landed (the
+  screen: browse state, selection, keyboard flow, download→auto-import / play handoff) + `Bootstrap.cs`
+  (`State.Browsing`, **Browse route now opens the browser**, Esc → main, `PlayRequested`/`SetImported` wired),
+  `SongSelectUI.FocusLocalSet` wrapper. **Compiles (human-run editor); nothing verified at runtime** — the
+  audible demo is the "done when", so the block stays claimed. Resume: `docs/U6-progress.md`. INDEX regen (55).
+- 2026-07-15 — Claimed **U6 pass 1** (opus): map browser, **no autoplay preview this pass** (human call) —
+  new `UI/Browser/` (MapBrowser + View/Rows/Search/Media/Model, split small on purpose), **Layout B frame**
+  with the preview slot reserved but empty; + `BeatmapDownloader.cs` (catboy search params, CDN url helpers),
+  `SongSelectUI.cs` (AudioType fix only), `Bootstrap.cs` (Browse route → browser). Deps U5+RES2 DONE, no
+  IN-PROGRESS overlap.
+- 2026-07-15 — **RES2 DONE** (opus): `docs/osu-api.md` landed — osu! online API / mirror / preview-CDN
+  audit, every claim verified against live endpoints + `ppy/osu-web`/`ppy/osu` source (docs site is
+  wrong/vague on several). Key: preview clip = song windowed to `[PreviewTime−100ms, +10000ms]`, always
+  10.1 s, **Ogg/Vorbis despite the `.mp3` extension** (proven by FFT cross-correlation vs `.osz` audio on
+  2 sets); `.osu` is public → **autoplay preview ~200 KB/map, no `.osz`**; `.osz` needs the `*` scope that
+  no third-party app can hold → **mirrors mandatory**; throttles are **per-token/per-IP, not app-wide** →
+  **never proxy**. Caught a live bug (`SongSelectUI.cs:999` `AudioType.MPEG` on Vorbis → silent no-op),
+  assigned to U6. Added **U6 (map browser)** to the board. No code touched. **Unblocks U6.**
 - 2026-07-12 — **UED (editor-authoring pivot) — pass 1** (opus): new `UI/UiScaffold.cs` (reconcile
   primitives + `UiListView` placeholder→data list binder + `UiPlaceholder`) & `UI/UiRow.cs` (row contract).
   `SongSelectUI` row builders (×4) now go through `UiListView`+`UiRow` with optional `setRowPrefab`/
@@ -367,6 +469,11 @@ _One line per claim/finish so parallel sessions see who's on what. Newest first.
 ## Done log
 
 _Prior wave (R1/R2/A/C/D/B/E + follow-ups) is fully logged in `docs/archive/PLAN-2026-07-11.md`._
+
+- 2026-07-15 — **RES2** osu! online API / mirror / preview-CDN audit → `docs/osu-api.md`: preview clip
+  fully characterised (Ogg/Vorbis, 10.1 s, `[PreviewTime−100ms, +10000ms]`, cross-correlation-proven);
+  public `.osu` → autoplay preview ~200 KB/map; `*`-scope wall → mirrors mandatory; per-token/per-IP
+  throttles → never proxy; credential-free verdict for U6. Live `AudioType` bug found → U6.
 
 - 2026-07-12 — **U5** online beatmap search → `BeatmapDownloader.Search` (mirror `/search`, nerinyan→catboy,
   JSON-array wrapper for `JsonUtility`) + `SongSelectUI` Local/Online toggle reusing the card UI: debounced

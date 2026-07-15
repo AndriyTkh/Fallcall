@@ -16,6 +16,18 @@ namespace OsuUnity.Gameplay
             $"https://catboy.best/d/{setId}",
         };
 
+        // ------------------------------------------------------------------ ppy CDN (public, no auth)
+        // These two are ppy's own hosts, not a mirror: the browser reads them directly per-client. Never
+        // proxy them through a server of ours — throttles are per-IP, and a proxy collapses every player
+        // into one bucket (docs/osu-api.md §6).
+
+        /// <summary>The set's ~10 s audio demo. <b>Ogg/Vorbis despite the <c>.mp3</c> extension</b> — decode it
+        /// as <see cref="UnityEngine.AudioType.OGGVORBIS"/> or the load fails silently (docs/osu-api.md §1).</summary>
+        public static string PreviewUrl(int setId) => $"https://b.ppy.sh/preview/{setId}.mp3";
+
+        /// <summary>The set's cover art (jpg).</summary>
+        public static string CoverUrl(int setId) => $"https://assets.ppy.sh/beatmaps/{setId}/covers/cover.jpg";
+
         public static IEnumerator Download(string url, string destPath, Action<float> onProgress, Action<bool> onDone)
         {
             using var req = UnityWebRequest.Get(url);
@@ -68,14 +80,16 @@ namespace OsuUnity.Gameplay
 
         /// <summary>Search endpoints tried in order. Both mirror osu!'s API shape and return a top-level JSON
         /// array of beatmapsets; an empty query returns a default ranked listing (nerinyan). <paramref name="mode"/>
-        /// 0 = osu!standard.</summary>
+        /// 0 = osu!standard. Note the two mirrors do <b>not</b> share parameter names (docs/osu-api.md §7):
+        /// nerinyan takes <c>q/m/ps</c>, catboy takes <c>query/mode/limit</c> — catboy silently ignores an
+        /// unknown <c>q</c> and answers with its default listing, so the query must be spelled its way.</summary>
         public static string[] SearchUrls(string query, int mode)
         {
             string q = UnityWebRequest.EscapeURL(query ?? "");
             return new[]
             {
                 $"https://api.nerinyan.moe/search?q={q}&m={mode}&ps=50",
-                $"https://catboy.best/api/v2/search?q={q}&mode={mode}",
+                $"https://catboy.best/api/v2/search?query={q}&mode={mode}&limit=50",
             };
         }
 

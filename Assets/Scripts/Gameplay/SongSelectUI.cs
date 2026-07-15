@@ -226,6 +226,12 @@ namespace OsuUnity.Gameplay
             _root.SetActive(false);
         }
 
+        /// <summary>
+        /// Switch to Local and select the set with this online id — how the U6 map browser hands a map it has
+        /// already imported over to be played. No-op when the id isn't in the library.
+        /// </summary>
+        public void FocusLocalSet(int onlineSetId) => JumpToLocal(onlineSetId);
+
         // ------------------------------------------------------------- filtering + sort
 
         private void RefreshList(bool selectFirst = false)
@@ -996,7 +1002,9 @@ namespace OsuUnity.Gameplay
             yield return new WaitForSeconds(0.30f);   // debounce arrow-key scrubbing
             if (!_root.activeInHierarchy || _source != Source.Online) yield break;
 
-            using var req = UnityWebRequestMultimedia.GetAudioClip($"https://b.ppy.sh/preview/{id}.mp3", AudioType.MPEG);
+            // Vorbis, not MPEG — b.ppy.sh serves Ogg under the .mp3 extension (docs/osu-api.md §1); the old
+            // AudioType.MPEG made this a silent no-op.
+            using var req = UnityWebRequestMultimedia.GetAudioClip(BeatmapDownloader.PreviewUrl(id), AudioType.OGGVORBIS);
             if (req.downloadHandler is DownloadHandlerAudioClip dh) dh.streamAudio = true;
             yield return req.SendWebRequest();
 
@@ -1020,7 +1028,7 @@ namespace OsuUnity.Gameplay
 
         private IEnumerator OnlineBackgroundRoutine(int id)
         {
-            using var req = UnityWebRequestTexture.GetTexture($"https://assets.ppy.sh/beatmaps/{id}/covers/cover.jpg");
+            using var req = UnityWebRequestTexture.GetTexture(BeatmapDownloader.CoverUrl(id));
             yield return req.SendWebRequest();
             if (req.result != UnityWebRequest.Result.Success || _source != Source.Online) yield break;
             if (_onlineIndex < 0 || _onlineIndex >= _online.Count || _online[_onlineIndex].Id != id) yield break;

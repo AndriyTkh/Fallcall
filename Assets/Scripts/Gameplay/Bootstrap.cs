@@ -19,7 +19,7 @@ namespace OsuUnity.Gameplay
     /// </summary>
     public sealed class Bootstrap : MonoBehaviour
     {
-        private enum State { Scanning, Menu, SongSelect, Loading, Playing }
+        private enum State { Scanning, Menu, SongSelect, Browsing, Loading, Playing }
         private State _state = State.Scanning;
 
         /// <summary>
@@ -33,6 +33,7 @@ namespace OsuUnity.Gameplay
         private GUIStyle _label;
         private GameManager _game;
         private SongSelectUI _songSelect;
+        private MapBrowser _browser;
         private MainScreen _main;
         private NavBar _nav;
         private bool _hasBeatmaps;
@@ -55,6 +56,13 @@ namespace OsuUnity.Gameplay
             _songSelect.PlaySelected += Select;
             _songSelect.Hide();
 
+            // Same pivot for the browse screen (U6): a scene-authored MapBrowser wins, else auto-spawn.
+            _browser = FindObjectOfType<MapBrowser>();
+            if (_browser == null) _browser = gameObject.AddComponent<MapBrowser>();
+            _browser.PlayRequested += OnBrowsePlayRequested;
+            _browser.SetImported += OnBrowseSetImported;
+            _browser.Hide();
+
             _main = gameObject.AddComponent<MainScreen>();
             _main.Navigate += OnNavigate;
 
@@ -75,6 +83,7 @@ namespace OsuUnity.Gameplay
 
             List<BeatmapSetInfo> sets = BeatmapLibrary.Scan();
             _songSelect.Populate(sets);
+            _browser.Populate(sets);   // so browse results can mark what's already imported (✓)
             _hasBeatmaps = sets.Count > 0;
             ShowMain();
         }
@@ -85,6 +94,7 @@ namespace OsuUnity.Gameplay
         {
             _state = State.Menu;
             _songSelect.Hide();
+            _browser.Hide();
             _main.SetHasBeatmaps(_hasBeatmaps);
             _main.Show();
             _nav.SetSuppressed(false);
@@ -94,8 +104,34 @@ namespace OsuUnity.Gameplay
         {
             _state = State.SongSelect;
             _main.Hide();
+            _browser.Hide();
             _songSelect.Show();
             _nav.SetSuppressed(false);
+        }
+
+        private void ShowBrowser()
+        {
+            _state = State.Browsing;
+            _main.Hide();
+            _songSelect.Hide();
+            _browser.Show();
+            _nav.SetSuppressed(false);
+        }
+
+        // The browser only asks — routing stays here, the one place that decides what a route does. An
+        // already-imported set hands off to song select, focused on that map, so Play is one Enter away.
+        private void OnBrowsePlayRequested(int onlineSetId)
+        {
+            ShowSongSelect();
+            _songSelect.FocusLocalSet(onlineSetId);
+        }
+
+        // A browse download auto-imports through the .osz pipeline; re-scan so song select sees it too.
+        private void OnBrowseSetImported(BeatmapSetInfo set)
+        {
+            var sets = BeatmapLibrary.Scan();
+            _hasBeatmaps = sets.Count > 0;
+            _songSelect.Populate(sets);
         }
 
         // Routes raised by both the main screen and the toolbar (docs/UI-DESIGN §1.4 — same routes,
@@ -105,16 +141,16 @@ namespace OsuUnity.Gameplay
             switch (route)
             {
                 case MenuRoute.Home:
-                    if (_state == State.SongSelect || _state == State.Menu) ShowMain();
+                    if (InMenus) ShowMain();
                     break;
                 case MenuRoute.Play:
-                    if (_hasBeatmaps && (_state == State.Menu || _state == State.SongSelect)) ShowSongSelect();
+                    if (_hasBeatmaps && InMenus) ShowSongSelect();
                     else if (!_hasBeatmaps) _nav.Toast("No beatmaps yet — use Browse to download some.");
                     break;
                 case MenuRoute.Browse:
-                    // v1: Browse routes into song select (download-by-id lives there); online mirror
-                    // search is U5, which shares the same card UI.
-                    if (_state == State.Menu || _state == State.SongSelect) ShowSongSelect();
+                    // The dedicated browse screen (U6). Song select's Online tab still exists and reaches the
+                    // same mirrors; retiring it is a later, separate step (see PLAN).
+                    if (InMenus) ShowBrowser();
                     break;
                 case MenuRoute.Settings:
                     if (OpenSettingsHook != null) OpenSettingsHook();
@@ -126,10 +162,13 @@ namespace OsuUnity.Gameplay
             }
         }
 
+        // The screens a route may be taken from: the main screen and anything reachable from it.
+        private bool InMenus => _state == State.Menu || _state == State.SongSelect || _state == State.Browsing;
+
         private void Update()
         {
-            // Esc backs out of song select to the main screen (§1.4 — Esc = back, everywhere).
-            if (_state == State.SongSelect && !UiInput.Typing && Input.GetKeyDown(KeyCode.Escape))
+            // Esc backs out of song select / browse to the main screen (§1.4 — Esc = back, everywhere).
+            if ((_state == State.SongSelect || _state == State.Browsing) && !UiInput.Typing && Input.GetKeyDown(KeyCode.Escape))
                 ShowMain();
         }
 
@@ -202,6 +241,7 @@ namespace OsuUnity.Gameplay
             var sets = BeatmapLibrary.Scan();
             _hasBeatmaps = sets.Count > 0;
             _songSelect.Populate(sets);
+            _browser.Populate(sets);
             ShowSongSelect();   // land back at song select for quick retry; Esc → main
         }
 
