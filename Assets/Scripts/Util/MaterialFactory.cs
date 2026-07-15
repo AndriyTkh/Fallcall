@@ -19,7 +19,7 @@ namespace OsuUnity.Util
                 // "Sprites/Default" is always available, respects vertex colour and supports transparency.
                 var shader = Shader.Find("Sprites/Default");
                 if (shader == null) shader = Shader.Find("Unlit/Transparent");
-                if (shader == null) shader = Shader.Find("Standard");
+                if (shader == null) shader = Shader.Find("Universal Render Pipeline/Unlit");
 
                 _transparent = new Material(shader) { name = "OsuUnlitTransparent" };
                 return _transparent;
