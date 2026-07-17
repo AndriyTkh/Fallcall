@@ -41,7 +41,11 @@ namespace OsuUnity.UI
         private readonly HashSet<int> _library = new HashSet<int>();         // imported online set ids (✓)
 
         private readonly BrowseFilters _filters = new BrowseFilters();
-        private BrowseSort _sort = BrowseSort.Relevance;
+        // Category + sort go to the mirror (server-side); default is Ranked maps, newest first — "search
+        // ranked by default" (human call, 2026-07-16). Extra + the star/length/BPM ranges stay client-side.
+        private BrowseCategory _category = BrowseCategory.Ranked;
+        private BrowseSort _sort = BrowseSort.Ranked;
+        private bool _sortDesc = BrowseQuery.DefaultDesc(BrowseSort.Ranked);
         private string _search = "";
         private int _index = -1;      // selected set within _shown
         private int _diffIndex = 0;   // selected difficulty within that set
@@ -84,14 +88,24 @@ namespace OsuUnity.UI
             _view = MapBrowserView.Build(new MapBrowserView.Callbacks
             {
                 SearchChanged = OnSearchChanged,
-                SortClicked = CycleSort,
+                CategoryChanged = OnCategoryChanged,
+                SortChanged = OnSortChanged,
+                SortDirClicked = OnSortDirClicked,
+                ExtraChanged = OnExtraChanged,
                 FiltersReset = ResetFilters,
                 PrimaryClicked = PrimaryAction,
                 FilterChanged = OnFilterChanged,
             }, setRowPrefab, diffRowPrefab);
 
-            UpdateSortLabel();
+            // Seed the word rows to match the default state (no callback — this isn't a user action).
+            _view.CategoryRow.SelectSilent((int)_category);
+            _view.SortRow.SelectSilent((int)_sort);
+            UpdateSortDirLabel();
         }
+
+        // One place that turns the current category + sort + direction into a mirror query.
+        private void RunSearch() =>
+            _searcher.Query(_search, BrowseQuery.Status(_category), BrowseQuery.Sort(_sort, _sortDesc));
 
         // ------------------------------------------------------------- public API (the host drives these)
 
@@ -114,7 +128,7 @@ namespace OsuUnity.UI
         {
             _view.Root.SetActive(true);
             // First open lands on the mirror's default listing rather than an empty screen (§1.3 certainty).
-            if (_results.Count == 0) _searcher.Query(_search);
+            if (_results.Count == 0) RunSearch();
             else StartMedia();
         }
 
@@ -130,7 +144,7 @@ namespace OsuUnity.UI
         private void OnSearchChanged(string v)
         {
             _search = v ?? "";
-            _searcher.Query(_search);
+            RunSearch();
         }
 
         private void OnSearchStarted()
@@ -180,37 +194,56 @@ namespace OsuUnity.UI
             _view.SetFilter(MapBrowserView.Filter.Length, false, BrowseFilters.LenHi);
             _view.SetFilter(MapBrowserView.Filter.Bpm, true, BrowseFilters.BpmLo);
             _view.SetFilter(MapBrowserView.Filter.Bpm, false, BrowseFilters.BpmHi);
+            _view.ExtraRow.SetOnSilent(0, false);   // clear the "Extra" toggles too — they are filters
+            _view.ExtraRow.SetOnSilent(1, false);
             ApplyFilters(selectFirst: true);
         }
 
-        private void CycleSort()
+        // Category, sort and direction all re-query the mirror (the mirror does the ordering / status
+        // filtering, §7). Extra and the range sliders re-filter the rows already in hand.
+
+        private void OnCategoryChanged(int index)
         {
-            _sort = (BrowseSort)(((int)_sort + 1) % Enum.GetValues(typeof(BrowseSort)).Length);
-            UpdateSortLabel();
-            ApplyFilters();
+            _category = (BrowseCategory)index;
+            RunSearch();
         }
 
-        private void UpdateSortLabel()
+        private void OnSortChanged(int index)
         {
-            if (_view?.SortLabel != null) _view.SortLabel.text = $"Sort: {_sort}";
+            _sort = (BrowseSort)index;
+            _sortDesc = BrowseQuery.DefaultDesc(_sort);   // each sort snaps to its natural direction
+            UpdateSortDirLabel();
+            RunSearch();
         }
 
-        // Filter + sort _results into _shown, keeping the current map selected when it survives. OrderBy is a
-        // stable sort, so equal keys keep the mirror's own relevance order underneath.
+        private void OnSortDirClicked()
+        {
+            _sortDesc = !_sortDesc;
+            UpdateSortDirLabel();
+            RunSearch();
+        }
+
+        private void OnExtraChanged(int index, bool on)
+        {
+            if (index == 0) _filters.VideoOnly = on;
+            else if (index == 1) _filters.StoryboardOnly = on;
+            ApplyFilters(selectFirst: true);
+        }
+
+        private void UpdateSortDirLabel()
+        {
+            if (_view?.SortDirLabel != null)
+                _view.SortDirLabel.text = _sortDesc ? "▼ Descending" : "▲ Ascending";
+        }
+
+        // Narrow _results into _shown with the client-side gates (Extra + the star/length/BPM ranges),
+        // keeping the current map selected when it survives. Ordering is the mirror's — category and sort
+        // are applied server-side (§7), so the row order arrives correct and is preserved here.
         private void ApplyFilters(bool selectFirst = false)
         {
             var keep = selectFirst ? null : Current;
 
-            IEnumerable<BrowseSet> q = _results.Where(_filters.Passes);
-            _shown = _sort switch
-            {
-                BrowseSort.Stars => q.OrderBy(s => s.StarsHi).ToList(),
-                BrowseSort.Length => q.OrderBy(s => s.Diffs[0].LengthSec).ToList(),
-                BrowseSort.Bpm => q.OrderBy(s => s.Diffs[0].Bpm).ToList(),
-                BrowseSort.Title => q.OrderBy(s => s.Title, StringComparer.OrdinalIgnoreCase).ToList(),
-                BrowseSort.Artist => q.OrderBy(s => s.Artist, StringComparer.OrdinalIgnoreCase).ToList(),
-                _ => q.ToList(),   // Relevance — the mirror's own order
-            };
+            _shown = _results.Where(_filters.Passes).ToList();
 
             BuildSetRows();
 
@@ -249,6 +282,11 @@ namespace OsuUnity.UI
                 if (row.title != null) row.title.text = BrowseText.SetTitle(set);
                 if (row.subtitle != null) row.subtitle.text = BrowseText.SetSubtitle(set);
                 if (row.marker != null) row.marker.enabled = false;
+
+                // Every result's art, now — not the selected one's. Results are a wall of unfamiliar names
+                // and the cover is what the player actually recognises; a card that only fills in once you
+                // arrow onto it can't be scanned. UiCoverCache windows and caches the burst.
+                UiMapCard.Bind(row, BeatmapDownloader.CardUrl(set.Id));
 
                 _setMarkers.Add(row.marker);
             }
@@ -433,20 +471,19 @@ namespace OsuUnity.UI
             foreach (char c in Input.inputString)
             {
                 if (c == '\b') { if (_search.Length > 0) { _search = _search.Substring(0, _search.Length - 1); changed = true; } }
-                else if (c == '\n' || c == '\r') { /* Enter is the primary action, below */ }
+                else if (c == '\n' || c == '\r') { /* Enter is not bound here: it would fire the primary action mid-search */ }
                 else if (!char.IsControl(c)) { _search += c; changed = true; }
             }
             if (changed)
             {
                 _view.SearchField.SetTextWithoutNotify(_search);
-                _searcher.Query(_search);
+                RunSearch();
             }
 
             if (Input.GetKeyDown(KeyCode.DownArrow)) SelectSet(_index + 1);
             else if (Input.GetKeyDown(KeyCode.UpArrow)) SelectSet(_index - 1);
             else if (Input.GetKeyDown(KeyCode.RightArrow)) SelectDiff(_diffIndex + 1);
             else if (Input.GetKeyDown(KeyCode.LeftArrow)) SelectDiff(_diffIndex - 1);
-            else if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter)) PrimaryAction();
         }
 
         // ------------------------------------------------------------- editor authoring entry

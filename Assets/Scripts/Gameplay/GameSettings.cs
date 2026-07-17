@@ -6,8 +6,8 @@ namespace OsuUnity.Gameplay
 {
     /// <summary>
     /// Runtime-adjustable, persisted game settings. Seeded from any <see cref="Osu3DSettings"/> in the
-    /// scene (or built-in defaults), then overridden by previously saved values. The pause menu edits
-    /// these live; <see cref="GameManager"/> reads them when building a play session.
+    /// scene (or built-in defaults), then overridden by previously saved values. The settings overlay
+    /// (Ctrl+O) edits these live; <see cref="GameManager"/> reads them when building a play session.
     /// </summary>
     public static class GameSettings
     {
@@ -15,7 +15,7 @@ namespace OsuUnity.Gameplay
 
         // Bump when the built-in defaults below change so existing installs adopt them instead of
         // masking them with stale saved PlayerPrefs (see Load).
-        private const int DefaultsVersion = 16;
+        private const int DefaultsVersion = 21;
 
         public static float MusicVolume = 0.2f;
         public static float HitSoundVolume = 0.15f;
@@ -32,10 +32,21 @@ namespace OsuUnity.Gameplay
         public static float ChunkHDegrees = 120f;
         public static float ChunkVDegrees = 90f;
 
+        // Autoplay (applied on (re)start). An AutoPilot drives the cursor hands-free so a map plays
+        // itself — for testing and beatmap preview. Works in both Sphere and Ortho2D (falling not yet).
+        public static bool Autoplay = false;
+
         // Cursor (applied on (re)start). CursorHitboxOsu is in osu! pixels (scales with CS like the
         // circle radius); 0 = faithful point-in-circle hit test (osu! default), opt-in above that.
         public static float CursorSize = 1f;
         public static float CursorHitboxOsu = 1f;
+
+        // Cursor trail (all live). Size multiplies the cursor's diameter (1 = same size, osu!'s look);
+        // Length multiplies both how many segments trail behind and how long each takes to fade, so the
+        // slider reads as "how far back the trail reaches" at any cursor speed.
+        public static bool CursorTrail = true;
+        public static float CursorTrailSize = 1f;
+        public static float CursorTrailLength = 1f;
 
         // Video background (applied on (re)start). Off skips VideoPlayback entirely for maps that have one.
         public static bool EnableVideo = true;
@@ -83,10 +94,18 @@ namespace OsuUnity.Gameplay
         // toggle is baked when the session builds (applied on restart); the scale is read live each frame.
         public static bool ShowFollowPoints = true;
         public static float FollowPointScale = 1f;
+        // Force the built-in arrow instead of the skin's followpoint art (baked on restart).
+        public static bool DefaultFollowPoint = false;
 
         // HUD size multiplier (applied live). Scales the skinned score/combo/accuracy fonts and the
         // health bar so the on-screen HUD can be tuned per display.
         public static float HudScale = 1f;
+
+        // Break / intro skip (both live — see BreakSkip). A stretch of the map with nothing to click that
+        // lasts at least BreakMinGapMs shows the skip overlay; skipping seeks to BreakSkipLeadMs before the
+        // next click so the approach circle still has runway.
+        public static float BreakMinGapMs = 5000f;
+        public static float BreakSkipLeadMs = 2000f;
 
         // Menu/overlay UI scale (applied live via UI.UiScaler). Multiplies the screen-space UI kit
         // (menus, settings, song select) independently of the in-play HUD. 1 = reference sizing.
@@ -162,6 +181,7 @@ namespace OsuUnity.Gameplay
             new KeybindDef("cycle_view",    "Cycle view mode",new Keybind(KeyCode.Tab)),
             new KeybindDef("hit_left",      "Hit (left)",     new Keybind(KeyCode.A)),
             new KeybindDef("hit_right",     "Hit (right)",    new Keybind(KeyCode.S)),
+            new KeybindDef("skip",          "Skip break / intro", new Keybind(KeyCode.Space)),
         };
 
         /// <summary>Live keybind map (id → chord). Populated by <see cref="Load"/>.</summary>
@@ -176,15 +196,20 @@ namespace OsuUnity.Gameplay
         private struct Defaults
         {
             public float MusicVolume, HitSoundVolume, LookSensitivity, PixelScale, ProjectionDistance, ChunkHDegrees, ChunkVDegrees;
+            public bool Autoplay;
             public float CursorSize, CursorHitboxOsu;
+            public bool CursorTrail;
+            public float CursorTrailSize, CursorTrailLength;
             public bool Curved;
             public ViewMode StartMode;
             public bool EnableVideo;
             public float BackgroundDim;
             public bool ShowFollowPoints;
             public float FollowPointScale;
+            public bool DefaultFollowPoint;
             public float HudScale;
             public float UiScale;
+            public float BreakMinGapMs, BreakSkipLeadMs;
             public bool OrthoZoom;
             public int OrthoGroupTargetCount, OrthoGroupMaxCount;
             public float OrthoAggressiveness, OrthoZoomLeadMs, OrthoZoomSmooth, OrthoZoomMargin, OrthoOvershoot, OrthoLookaheadMs, OrthoGroupBreakGapMs, OrthoGroupGapMs, OrthoStreamGapMs, OrthoStreamSpacingOsu, OrthoKiaiSmoothMul, OrthoKiaiZoomMul;
@@ -209,6 +234,7 @@ namespace OsuUnity.Gameplay
                 LookSensitivity = sceneDefaults.LookSensitivity;
                 ShowFollowPoints = sceneDefaults.ShowFollowPoints;
                 FollowPointScale = sceneDefaults.FollowPointScale;
+                DefaultFollowPoint = sceneDefaults.DefaultFollowPoint;
                 HudScale = sceneDefaults.HudScale;
                 OrthoZoom = sceneDefaults.OrthoZoom;
                 OrthoZoomLeadMs = sceneDefaults.OrthoZoomLeadMs;
@@ -243,14 +269,21 @@ namespace OsuUnity.Gameplay
                 ProjectionDistance = ProjectionDistance,
                 ChunkHDegrees = ChunkHDegrees,
                 ChunkVDegrees = ChunkVDegrees,
+                Autoplay = Autoplay,
                 CursorSize = CursorSize,
                 CursorHitboxOsu = CursorHitboxOsu,
+                CursorTrail = CursorTrail,
+                CursorTrailSize = CursorTrailSize,
+                CursorTrailLength = CursorTrailLength,
                 EnableVideo = EnableVideo,
                 BackgroundDim = BackgroundDim,
                 ShowFollowPoints = ShowFollowPoints,
                 FollowPointScale = FollowPointScale,
+                DefaultFollowPoint = DefaultFollowPoint,
                 HudScale = HudScale,
                 UiScale = UiScale,
+                BreakMinGapMs = BreakMinGapMs,
+                BreakSkipLeadMs = BreakSkipLeadMs,
                 OrthoZoom = OrthoZoom,
                 OrthoZoomLeadMs = OrthoZoomLeadMs,
                 OrthoZoomSmooth = OrthoZoomSmooth,
@@ -294,14 +327,21 @@ namespace OsuUnity.Gameplay
             ProjectionDistance = PlayerPrefs.GetFloat(Prefix + "dist", ProjectionDistance);
             ChunkHDegrees = PlayerPrefs.GetFloat(Prefix + "hdeg", ChunkHDegrees);
             ChunkVDegrees = PlayerPrefs.GetFloat(Prefix + "vdeg", ChunkVDegrees);
+            Autoplay = PlayerPrefs.GetInt(Prefix + "auto", Autoplay ? 1 : 0) != 0;
             CursorSize = PlayerPrefs.GetFloat(Prefix + "cursize", CursorSize);
             CursorHitboxOsu = PlayerPrefs.GetFloat(Prefix + "curhitbox", CursorHitboxOsu);
+            CursorTrail = PlayerPrefs.GetInt(Prefix + "curtrail", CursorTrail ? 1 : 0) != 0;
+            CursorTrailSize = PlayerPrefs.GetFloat(Prefix + "curtrailsize", CursorTrailSize);
+            CursorTrailLength = PlayerPrefs.GetFloat(Prefix + "curtraillen", CursorTrailLength);
             EnableVideo = PlayerPrefs.GetInt(Prefix + "video", EnableVideo ? 1 : 0) != 0;
             BackgroundDim = PlayerPrefs.GetFloat(Prefix + "bgdim", BackgroundDim);
             ShowFollowPoints = PlayerPrefs.GetInt(Prefix + "fp", ShowFollowPoints ? 1 : 0) != 0;
             FollowPointScale = PlayerPrefs.GetFloat(Prefix + "fpscale", FollowPointScale);
+            DefaultFollowPoint = PlayerPrefs.GetInt(Prefix + "fpdefault", DefaultFollowPoint ? 1 : 0) != 0;
             HudScale = PlayerPrefs.GetFloat(Prefix + "hudscale", HudScale);
             UiScale = PlayerPrefs.GetFloat(Prefix + "uiscale", UiScale);
+            BreakMinGapMs = PlayerPrefs.GetFloat(Prefix + "brkmin", BreakMinGapMs);
+            BreakSkipLeadMs = PlayerPrefs.GetFloat(Prefix + "brklead", BreakSkipLeadMs);
             OrthoZoom = PlayerPrefs.GetInt(Prefix + "ozoom", OrthoZoom ? 1 : 0) != 0;
             OrthoZoomLeadMs = PlayerPrefs.GetFloat(Prefix + "ozlead", OrthoZoomLeadMs);
             OrthoZoomSmooth = PlayerPrefs.GetFloat(Prefix + "ozsmooth", OrthoZoomSmooth);
@@ -340,14 +380,21 @@ namespace OsuUnity.Gameplay
             PlayerPrefs.SetFloat(Prefix + "dist", ProjectionDistance);
             PlayerPrefs.SetFloat(Prefix + "hdeg", ChunkHDegrees);
             PlayerPrefs.SetFloat(Prefix + "vdeg", ChunkVDegrees);
+            PlayerPrefs.SetInt(Prefix + "auto", Autoplay ? 1 : 0);
             PlayerPrefs.SetFloat(Prefix + "cursize", CursorSize);
             PlayerPrefs.SetFloat(Prefix + "curhitbox", CursorHitboxOsu);
+            PlayerPrefs.SetInt(Prefix + "curtrail", CursorTrail ? 1 : 0);
+            PlayerPrefs.SetFloat(Prefix + "curtrailsize", CursorTrailSize);
+            PlayerPrefs.SetFloat(Prefix + "curtraillen", CursorTrailLength);
             PlayerPrefs.SetInt(Prefix + "video", EnableVideo ? 1 : 0);
             PlayerPrefs.SetFloat(Prefix + "bgdim", BackgroundDim);
             PlayerPrefs.SetInt(Prefix + "fp", ShowFollowPoints ? 1 : 0);
             PlayerPrefs.SetFloat(Prefix + "fpscale", FollowPointScale);
+            PlayerPrefs.SetInt(Prefix + "fpdefault", DefaultFollowPoint ? 1 : 0);
             PlayerPrefs.SetFloat(Prefix + "hudscale", HudScale);
             PlayerPrefs.SetFloat(Prefix + "uiscale", UiScale);
+            PlayerPrefs.SetFloat(Prefix + "brkmin", BreakMinGapMs);
+            PlayerPrefs.SetFloat(Prefix + "brklead", BreakSkipLeadMs);
             PlayerPrefs.SetInt(Prefix + "ozoom", OrthoZoom ? 1 : 0);
             PlayerPrefs.SetFloat(Prefix + "ozlead", OrthoZoomLeadMs);
             PlayerPrefs.SetFloat(Prefix + "ozsmooth", OrthoZoomSmooth);
@@ -385,14 +432,21 @@ namespace OsuUnity.Gameplay
             ProjectionDistance = _defaults.ProjectionDistance;
             ChunkHDegrees = _defaults.ChunkHDegrees;
             ChunkVDegrees = _defaults.ChunkVDegrees;
+            Autoplay = _defaults.Autoplay;
             CursorSize = _defaults.CursorSize;
             CursorHitboxOsu = _defaults.CursorHitboxOsu;
+            CursorTrail = _defaults.CursorTrail;
+            CursorTrailSize = _defaults.CursorTrailSize;
+            CursorTrailLength = _defaults.CursorTrailLength;
             EnableVideo = _defaults.EnableVideo;
             BackgroundDim = _defaults.BackgroundDim;
             ShowFollowPoints = _defaults.ShowFollowPoints;
             FollowPointScale = _defaults.FollowPointScale;
+            DefaultFollowPoint = _defaults.DefaultFollowPoint;
             HudScale = _defaults.HudScale;
             UiScale = _defaults.UiScale;
+            BreakMinGapMs = _defaults.BreakMinGapMs;
+            BreakSkipLeadMs = _defaults.BreakSkipLeadMs;
             OrthoZoom = _defaults.OrthoZoom;
             OrthoZoomLeadMs = _defaults.OrthoZoomLeadMs;
             OrthoZoomSmooth = _defaults.OrthoZoomSmooth;

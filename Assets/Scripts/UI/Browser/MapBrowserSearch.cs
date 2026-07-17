@@ -32,11 +32,17 @@ namespace OsuUnity.UI
 
         private Coroutine _co;
         private int _seq;
+        private int? _status;
+        private string _sort;
 
-        /// <summary>Schedule a search. Each call supersedes the previous one; an empty query is the mirror's default listing.</summary>
-        public void Query(string query)
+        /// <summary>Schedule a search. Each call supersedes the previous one; an empty query is the mirror's
+        /// default listing. <paramref name="status"/>/<paramref name="sort"/> are the mirror category/order
+        /// params (see <see cref="BrowseQuery"/>).</summary>
+        public void Query(string query, int? status = null, string sort = null)
         {
             Cancel();
+            _status = status;
+            _sort = sort;
             _co = StartCoroutine(Run(query ?? ""));
         }
 
@@ -55,7 +61,7 @@ namespace OsuUnity.UI
             Started?.Invoke();
 
             List<BeatmapDownloader.OnlineBeatmapset> raw = null;
-            yield return BeatmapDownloader.Search(query, 0, r => raw = r);
+            yield return BeatmapDownloader.Search(query, 0, _status, _sort, r => raw = r);
             if (seq != _seq) yield break;   // superseded by a newer query while this one was in flight
 
             _co = null;
@@ -70,7 +76,12 @@ namespace OsuUnity.UI
             foreach (var s in raw)
             {
                 if (s == null) continue;
-                var set = new BrowseSet { Id = s.id, Artist = s.artist ?? "", Title = s.title ?? "", Creator = s.creator ?? "" };
+                var set = new BrowseSet
+                {
+                    Id = s.id, Artist = s.artist ?? "", Title = s.title ?? "", Creator = s.creator ?? "",
+                    RankState = s.status ?? "", Video = s.video, Storyboard = s.storyboard,
+                    PlayCount = s.play_count, FavouriteCount = s.favourite_count,
+                };
 
                 if (s.beatmaps != null)
                     foreach (var b in s.beatmaps)

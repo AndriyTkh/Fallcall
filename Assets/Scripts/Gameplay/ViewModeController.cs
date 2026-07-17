@@ -62,6 +62,7 @@ namespace OsuUnity.Gameplay
             _active = active;
             _look = cam.GetComponent<FirstPersonCamera>() ?? cam.gameObject.AddComponent<FirstPersonCamera>();
             _look.Sensitivity = GameSettings.LookSensitivity;
+            _look.Auto = GameSettings.Autoplay;   // autoplay aims the camera at the notes (see AimAt)
             _ortho.Build(pf, cam, map);           // precompute click groups for the Ortho2D zoom pass
             Apply(initial, reproject: false);
         }
@@ -96,6 +97,22 @@ namespace OsuUnity.Gameplay
             if (_paused) return;
             if (_mode == ViewMode.Ortho2D) _ortho.Tick(timeMs);
             else if (_mode == ViewMode.Falling) TickFalling();
+        }
+
+        /// <summary>
+        /// Autoplay camera aim (Sphere only): rotate the first-person camera toward an osu! target so the
+        /// notes the AutoPilot is hitting stay on screen. No-op in Ortho2D/Falling, where the camera is
+        /// driven by their own passes and the cursor is placed directly on the flat plane. Smoothed so the
+        /// view glides between notes rather than snapping.
+        /// </summary>
+        public void AimAt(Vector2 osu)
+        {
+            if (_mode != ViewMode.Sphere || _cam == null || _pf == null) return;
+            Vector3 dir = _pf.ToWorld(osu) - _cam.transform.position;
+            if (dir.sqrMagnitude < 1e-6f) return;
+            Quaternion want = Quaternion.LookRotation(dir, _pf.transform.up);
+            float k = 1f - Mathf.Exp(-12f * Time.deltaTime);   // frame-rate-independent smoothing
+            _cam.transform.rotation = Quaternion.Slerp(_cam.transform.rotation, want, k);
         }
 
         /// <summary>Pause hook: while paused, drop first-person look (and unlock the mouse for menus);

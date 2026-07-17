@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fallcall — Song Select Blockout</title>
+<style>
+  :root {
+    --ground:   #13161b;
+    --panel:    #1b2028;
+    --panel-2:  #232a34;
+    --line:     #313b48;
+    --ink:      #e7edf5;
+    --muted:    #8b98a9;
+    --faint:    #5c6775;
+    --accent:   #4db2ff;
+    --accent-dim: rgba(77,178,255,.14);
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+    /* zone hues — desaturated, distinct */
+    --z-nav:    #6b7c93;
+    --z-search: #4db2ff;
+    --z-sort:   #5fb3a1;
+    --z-toggle: #c9a15f;
+    --z-list:   #7f8ed6;
+    --z-detail: #d68fa8;
+    --z-audio:  #67c58a;
+    --z-scores: #9b8fd6;
+    --z-back:   #8b98a9;
+    --z-mods:   #d08a6b;
+    --z-random: #6bbccf;
+    --z-play:   #5fd67f;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.55;
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+  }
+
+  header.top {
+    padding: 18px 26px 14px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  header.top h1 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 650;
+    letter-spacing: .01em;
+  }
+  header.top .crumb {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--faint);
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  header.top .hint {
+    margin-left: auto;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  header.top .hint kbd {
+    font-family: var(--mono);
+    font-size: 11px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: var(--ink);
+  }
+
+  main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(0,1fr) 380px;
+    gap: 0;
+    min-height: 0;
+  }
+
+  /* ---- stage (the mock screen) ---- */
+  .stage-wrap {
+    padding: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+  }
+  .stage {
+    position: relative;
+    width: 100%;
+    max-width: 1040px;
+    aspect-ratio: 16 / 9;
+    background:
+      radial-gradient(120% 120% at 70% 20%, #1a2028 0%, #10131a 70%);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 24px 60px -30px #000;
+  }
+  .stage::after {
+    /* "center is sacred" reminder crosshair */
+    content: "playfield-safe center";
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,.06);
+    pointer-events: none;
+  }
+
+  .zone {
+    position: absolute;
+    border: 1.5px dashed color-mix(in srgb, var(--hue) 70%, transparent);
+    background: color-mix(in srgb, var(--hue) 13%, transparent);
+    border-radius: 7px;
+    color: var(--ink);
+    font-family: var(--mono);
+    cursor: pointer;
+    padding: 7px 9px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    text-align: left;
+    transition: background .12s ease, border-color .12s ease, transform .12s ease;
+    overflow: hidden;
+  }
+  .zone:hover, .zone:focus-visible {
+    background: color-mix(in srgb, var(--hue) 26%, transparent);
+    border-style: solid;
+    outline: none;
+    transform: translateY(-1px);
+  }
+  .zone.active {
+    background: color-mix(in srgb, var(--hue) 30%, transparent);
+    border: 2px solid var(--hue);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--hue) 22%, transparent);
+  }
+  .zone .znum {
+    font-size: 10px;
+    color: color-mix(in srgb, var(--hue) 55%, var(--ink));
+    letter-spacing: .06em;
+  }
+  .zone .zname {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .01em;
+    line-height: 1.15;
+  }
+  .zone .zsub {
+    font-size: 10px;
+    color: var(--muted);
+    line-height: 1.2;
+  }
+  /* small zones: hide the sub text */
+  .zone.compact .zsub { display: none; }
+  .zone.compact { justify-content: center; }
+
+  /* fake carousel cards inside the list zone */
+  .cards { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; pointer-events: none; }
+  .card {
+    height: 20px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--hue) 22%, transparent);
+    border: 1px solid color-mix(in srgb, var(--hue) 40%, transparent);
+  }
+  .card.sel {
+    height: 40px;
+    background: color-mix(in srgb, var(--accent) 26%, transparent);
+    border-color: var(--accent);
+  }
+
+  /* ---- detail drawer ---- */
+  aside.drawer {
+    border-left: 1px solid var(--line);
+    background: var(--panel);
+    padding: 22px 22px 30px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .drawer .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .drawer h2 {
+    margin: 2px 0 0;
+    font-size: 20px;
+    font-weight: 650;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .drawer h2 .swatch {
+    width: 13px; height: 13px; border-radius: 3px; flex: none;
+    border: 1px solid rgba(255,255,255,.25);
+  }
+  .drawer .role {
+    font-size: 14px;
+    color: var(--muted);
+    margin: -6px 0 0;
+  }
+  .spec { display: flex; flex-direction: column; gap: 13px; }
+  .spec .block .lbl {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  .spec ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+  .spec li { font-size: 13.5px; }
+  .spec .key {
+    display: inline-flex; gap: 6px; flex-wrap: wrap;
+  }
+  .spec kbd {
+    font-family: var(--mono);
+    font-size: 11px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 2px 7px;
+  }
+  .placeholder { color: var(--muted); font-size: 14px; }
+  .placeholder strong { color: var(--ink); font-weight: 600; }
+
+  .legend {
+    margin-top: auto;
+    border-top: 1px solid var(--line);
+    padding-top: 14px;
+  }
+  .legend .lgt {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--faint); margin-bottom: 8px;
+  }
+  .legend ol { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 3px 14px; }
+  .legend li { font-size: 12px; color: var(--muted); cursor: pointer; display: flex; align-items: center; gap: 7px; }
+  .legend li:hover { color: var(--ink); }
+  .legend li .dot { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+  .legend li b { color: var(--faint); font-family: var(--mono); font-size: 10px; width: 14px; }
+
+  footer {
+    padding: 10px 26px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--faint);
+    font-family: var(--mono);
+    letter-spacing: .02em;
+  }
+  footer a { color: var(--muted); }
+
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; }
+    aside.drawer { border-left: none; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <span class="crumb">Fallcall · blockout 1/?</span>
+  <h1>Song Select</h1>
+  <span class="hint">Click any <kbd>zone</kbd> for its function &amp; keyboard route</span>
+</header>
+
+<main>
+  <div class="stage-wrap">
+    <div class="stage" id="stage" aria-label="Song select layout blockout">
+      <!-- zones positioned in real screen locations. left/top/width/height in % -->
+
+      <!-- 1 toolbar -->
+      <button class="zone" data-id="nav" style="--hue:var(--z-nav);   left:2%;  top:2.5%; width:96%; height:8%;">
+        <span class="znum">01</span><span class="zname">Toolbar</span>
+        <span class="zsub">persistent nav strip · routes to every screen</span>
+      </button>
+
+      <!-- 2 search -->
+      <button class="zone" data-id="search" style="--hue:var(--z-search); left:64%; top:13%; width:34%; height:8%;">
+        <span class="znum">02</span><span class="zname">Search field</span>
+        <span class="zsub">type-to-search, no click needed</span>
+      </button>
+
+      <!-- 3 sort/filter -->
+      <button class="zone" data-id="sort" style="--hue:var(--z-sort); left:64%; top:22.5%; width:34%; height:7%;">
+        <span class="znum">03</span><span class="zname">Sort &amp; Filter</span>
+        <span class="zsub">star / length / BPM · sort mode</span>
+      </button>
+
+      <!-- 4 local/online -->
+      <button class="zone compact" data-id="toggle" style="--hue:var(--z-toggle); left:2%; top:13%; width:28%; height:8%;">
+        <span class="znum">04</span><span class="zname">Local / Online</span>
+      </button>
+
+      <!-- 5 carousel -->
+      <button class="zone" data-id="list" style="--hue:var(--z-list); left:64%; top:31%; width:34%; height:56%;">
+        <span class="znum">05</span><span class="zname">Beatmap carousel</span>
+        <span class="zsub">sets → difficulties · hover preview</span>
+        <div class="cards">
+          <div class="card"></div><div class="card sel"></div><div class="card"></div>
+          <div class="card"></div><div class="card"></div><div class="card"></div>
+        </div>
+      </button>
+
+      <!-- 6 detail panel -->
+      <button class="zone" data-id="detail" style="--hue:var(--z-detail); left:2%; top:23%; width:44%; height:42%;">
+        <span class="znum">06</span><span class="zname">Selected — detail panel</span>
+        <span class="zsub">bg / video preview · title · star · CS AR OD HP · length · BPM</span>
+      </button>
+
+      <!-- 7 audio / music player (bottom-right, where play used to be) -->
+      <button class="zone" data-id="audio" style="--hue:var(--z-audio); left:64%; top:90%; width:34%; height:8%;">
+        <span class="znum">07</span><span class="zname">Music / preview player</span>
+        <span class="zsub">preview on/off · ◀◀ ⏸ ▶</span>
+      </button>
+
+      <!-- 8 scores -->
+      <button class="zone" data-id="scores" style="--hue:var(--z-scores); left:2%; top:67%; width:44%; height:20%;">
+        <span class="znum">08</span><span class="zname">Local scores</span>
+        <span class="zsub">personal leaderboard for selected difficulty</span>
+      </button>
+
+      <!-- 9 back -->
+      <button class="zone compact" data-id="back" style="--hue:var(--z-back); left:2%; top:90%; width:14%; height:8%;">
+        <span class="znum">09</span><span class="zname">Back</span>
+      </button>
+
+      <!-- 10 mods -->
+      <button class="zone compact" data-id="mods" style="--hue:var(--z-mods); left:18%; top:90%; width:14%; height:8%;">
+        <span class="znum">10</span><span class="zname">Mods</span>
+      </button>
+
+      <!-- 11 random -->
+      <button class="zone compact" data-id="random" style="--hue:var(--z-random); left:34%; top:90%; width:14%; height:8%;">
+        <span class="znum">11</span><span class="zname">Random</span>
+      </button>
+
+    </div>
+  </div>
+
+  <aside class="drawer" id="drawer">
+    <!-- filled by JS -->
+  </aside>
+</main>
+
+<footer>
+  reference: docs/UI-DESIGN.md §2.2 · function adopted, form is Fallcall's own · not final art
+</footer>
+
+<script>
+const ZONES = {
+  nav: {
+    color: "--z-nav", role: "Persistent navigation",
+    purpose: "Always-present toolbar. The one fixed route to every other screen — never moves, never hides content.",
+    behavior: [
+      "Same strip on every screen; toggleable.",
+      "Icons: home, browse (online), settings, user.",
+      "Each entry has a permanent home + shortcut."
+    ],
+    keys: [["Ctrl","T"," toggle strip"], ["Ctrl","O"," settings"]]
+  },
+  search: {
+    color: "--z-search", role: "Search-as-you-type",
+    purpose: "Filters the carousel live across title / artist / creator / tags. No need to click it first — start typing anywhere.",
+    behavior: [
+      "Every keystroke re-filters instantly.",
+      "Matched text highlighted.",
+      "Empty query = full library."
+    ],
+    keys: [["type","… filters live"], ["Esc"," clear query"]]
+  },
+  sort: {
+    color: "--z-sort", role: "Sort & filter controls",
+    purpose: "Narrow and order the list. Filters stack; sort is single-choice.",
+    behavior: [
+      "Filter: star range, length, BPM.",
+      "Sort: title / artist / difficulty / recently played.",
+      "State persists between visits."
+    ],
+    keys: [["click"," chip toggles filter"]]
+  },
+  toggle: {
+    color: "--z-toggle", role: "Source switch",
+    purpose: "One learned interface, two sources — same cards, same filters, local library vs online mirror search.",
+    behavior: [
+      "Local = imported .osz library.",
+      "Online = mirror API search + download → auto-import.",
+      "Switching keeps search/filter state."
+    ],
+    keys: [["click"," Local ⇄ Online"]]
+  },
+  list: {
+    color: "--z-list", role: "Card carousel",
+    purpose: "The thing the player came for — biggest element. Sets group into cards; the selected set expands to its difficulties.",
+    behavior: [
+      "Card shows background art + metadata.",
+      "Hover = preview; select = expand difficulties.",
+      "Selected card plays video preview."
+    ],
+    keys: [["↑","↓"," move"], ["Enter"," play"], ["click"," select"]]
+  },
+  detail: {
+    color: "--z-detail", role: "Selected-map detail",
+    purpose: "Everything about the current difficulty at a glance, before committing to play.",
+    behavior: [
+      "Background / video preview of the map.",
+      "Title · artist · mapper · star rating.",
+      "CS · AR · OD · HP · length · BPM."
+    ],
+    keys: [["follows"," carousel selection"]]
+  },
+  audio: {
+    color: "--z-audio", role: "Music / preview player",
+    purpose: "Controls what's playing on the song-select screen — the map-song preview and the ambient background music. One transport, always visible.",
+    behavior: [
+      "Enable / disable song preview (toggle).",
+      "Transport: play · pause · rewind to preview start.",
+      "Preview starts at .osu PreviewTime (ms); missing / -1 → ~40% into song.",
+      "Preview off → ambient menu music plays instead.",
+      "Auto-switches source when carousel selection changes."
+    ],
+    keys: [["Space"," pause / play"], ["click"," ⏸ ▶ ◀◀ · toggle preview"]]
+  },
+  scores: {
+    color: "--z-scores", role: "Local leaderboard",
+    purpose: "Personal score history for the selected difficulty — subordinate to the map detail above it.",
+    behavior: [
+      "Rank · grade · score · accuracy · combo.",
+      "Local only in v1 (no account).",
+      "Empty state prompts a first play."
+    ],
+    keys: [["select"," a score to inspect"]]
+  },
+  back: {
+    color: "--z-back", role: "Leave song select",
+    purpose: "Return to main screen. Back always goes where the player expects.",
+    behavior: ["Consistent Esc = back everywhere.", "Crossfades to main screen."],
+    keys: [["Esc"," back to main"]]
+  },
+  mods: {
+    color: "--z-mods", role: "Mod picker",
+    purpose: "Open the mod selection panel for the run. Single function — just opens the picker.",
+    behavior: ["Toggle gameplay modifiers.", "Shows active mods on the play button."],
+    keys: [["F1"," open mods"]]
+  },
+  random: {
+    color: "--z-random", role: "Jump to random map",
+    purpose: "Pick a random beatmap from the current filtered set — fast discovery.",
+    behavior: ["Respects active filters.", "Re-roll repeatedly."],
+    keys: [["F2"," random"]]
+  },
+};
+
+const ORDER = ["nav","search","sort","toggle","list","detail","audio","scores","back","mods","random"];
+const NAMES = {nav:"Toolbar",search:"Search field",sort:"Sort & Filter",toggle:"Local / Online",list:"Beatmap carousel",detail:"Detail panel",audio:"Music / preview player",scores:"Local scores",back:"Back",mods:"Mods",random:"Random"};
+
+const drawer = document.getElementById("drawer");
+const stage = document.getElementById("stage");
+let activeId = null;
+
+function cssColor(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+
+function renderDefault(){
+  const legend = ORDER.map((id,i)=>{
+    const c = cssColor(ZONES[id].color);
+    const n = String(i+1).padStart(2,"0");
+    return `<li data-jump="${id}"><b>${n}</b><span class="dot" style="background:${c}"></span>${NAMES[id]}</li>`;
+  }).join("");
+  drawer.innerHTML = `
+    <div>
+      <div class="eyebrow">How to read this</div>
+      <h2>Song Select — layout blockout</h2>
+    </div>
+    <p class="placeholder">Twelve <strong>function zones</strong> in their real screen positions. Boxes are named regions, <strong>not final art</strong> — palette, shape and type are placeholders. Click a zone (or a legend row) to see what it does and how it's reached by keyboard.</p>
+    <p class="placeholder">Priority order baked into the layout: <strong>gameplay-safe center</strong> → biggest element is the carousel (the thing players came for) → metadata &amp; secondary actions sit subordinate at the edges.</p>
+    <div class="legend">
+      <div class="lgt">Zones</div>
+      <ol>${legend}</ol>
+    </div>`;
+  drawer.querySelectorAll("[data-jump]").forEach(el=>{
+    el.addEventListener("click",()=>select(el.dataset.jump));
+  });
+}
+
+function renderZone(id){
+  const z = ZONES[id];
+  const c = cssColor(z.color);
+  const beh = z.behavior.map(b=>`<li>${b}</li>`).join("");
+  const keys = z.keys.map(k=>{
+    const parts = k.map((p,i)=> i < k.length && !p.startsWith(" ") ? `<kbd>${p}</kbd>` : `<span>${p}</span>`).join("");
+    return `<span class="key">${parts}</span>`;
+  }).join("<br>");
+  drawer.innerHTML = `
+    <div>
+      <div class="eyebrow">${String(ORDER.indexOf(id)+1).padStart(2,"0")} · zone</div>
+      <h2><span class="swatch" style="background:${c}"></span>${NAMES[id]}</h2>
+      <p class="role">${z.role}</p>
+    </div>
+    <div class="spec">
+      <div class="block"><div class="lbl">Purpose</div><p style="margin:0;font-size:14px">${z.purpose}</p></div>
+      <div class="block"><div class="lbl">Behavior</div><ul>${beh}</ul></div>
+      <div class="block"><div class="lbl">Keyboard</div><div style="display:flex;flex-direction:column;gap:6px;font-size:13px">${keys}</div></div>
+    </div>
+    <div class="legend"><div class="lgt">← click another zone, or Esc to reset</div></div>`;
+}
+
+function select(id){
+  if(activeId === id){ clear(); return; }
+  activeId = id;
+  stage.querySelectorAll(".zone").forEach(z=>z.classList.toggle("active", z.dataset.id===id));
+  renderZone(id);
+}
+function clear(){
+  activeId = null;
+  stage.querySelectorAll(".zone").forEach(z=>z.classList.remove("active"));
+  renderDefault();
+}
+
+stage.querySelectorAll(".zone").forEach(z=>{
+  z.addEventListener("click",()=>select(z.dataset.id));
+});
+document.addEventListener("keydown",e=>{ if(e.key==="Escape") clear(); });
+
+renderDefault();
+</script>
+</body>
+</html>

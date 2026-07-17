@@ -90,12 +90,18 @@ merge-conflict. Then work.
 - **Video**: `VideoPlayback.cs` plays the `Video` event, synced to `GameClock`.
 - **HUD**: `HudSkin.cs` renders score/acc/combo/health with skin fonts (IMGUI). Follow points,
   background-dim setting landed.
-- **Settings**: split `Osu3DSettings` (scene) + `GameSettings` (persisted); legacy IMGUI pause menu
-  still present. **Settings overlay (U2)**: `UI/SettingsOverlay.cs` — self-bootstrapping slide-over
+- **Settings**: split `Osu3DSettings` (scene) + `GameSettings` (persisted). The **settings overlay
+  (U2)** is now the only settings surface — the legacy IMGUI pause settings are retired (2026-07-16).
+  `UI/SettingsOverlay.cs` — self-bootstrapping slide-over
   (Ctrl+O / nav Settings route via `Bootstrap.OpenSettingsHook`), sidebar sections (Gameplay/Visuals/
   Audio/Skin/Input/UI) + search-with-highlight, live-applying sliders/toggles with per-setting +
   per-section reset, and a rebindable keybinds section (conflict detection) backed by a new
   `GameSettings` keybind store + `Changed` event. Pending in-editor verify.
+- **Pause menu**: `UI/PauseMenu.cs` — a canvas (not IMGUI, so the settings overlay can draw over it)
+  with exactly three routes: Continue / Restart / Quit. Opens over gameplay from Esc; Ctrl+O opens
+  settings on top of it. **Unverified in editor.**
+- **Draw order**: `Util/RenderOrder.cs` is the single definition of the whole stack (video queue →
+  dim → follow points → hit objects → cursor → judgement → canvases); every call site reads from it.
 - **UI kit (U1)**: `UI/UiTheme.cs` (design tokens: grey/blue placeholder palette, type scale, spacing/
   radii, motion, shared TMP font, procedural rounded-rect sprites) + `UI/UiKit.cs` (runtime uGUI+TMP
   widget factory: canvas w/ live UI-scale, panel, button, toggle, range slider, search field, section
@@ -127,6 +133,10 @@ merge-conflict. Then work.
   **credential-free**, `.osz` **must** come from mirrors (`*`-scope wall), autoplay preview **viable at
   ~200 KB/map**. Also fixed en route: catboy search took `q=` and silently answered with its default
   listing — the fallback mirror had never actually searched.
+- **The map card (U6, 2026-07-16)**: both listing screens (browse results + the song-select carousel) now
+  build the same `UI/UiMapCard` — the map's artwork as the card background, 120 px tall, text on a scrim that
+  is also the hover tint. **Art loads for every card in the list up front**, windowed + downscaled + cached by
+  `UI/UiCoverCache`. Compiles; **unverified at runtime** — needs an editor pass.
 - Most of the last wave is **pending in-editor verification** (no headless Unity path).
 
 ---
@@ -159,9 +169,9 @@ look/branding (form vs. function split, §0 of that doc).
   `SongSelectUI.cs`. It reuses the U1 kit + `UiListView`/`UiRow`; it edits `SongSelectUI.cs` only
   where the Online tab hands off (and to fix the `AudioType` bug, see U6 detail).
 - **U3 edits `Bootstrap.cs`** (currently drives `SongSelectUI` directly) — only U3 touches it.
-- Pause-menu settings currently live in `GameManager.DrawPauseMenu` (IMGUI). **U2 should not
-  rip that out** in its first pass — build the new overlay alongside; migrating/retiring the
-  IMGUI pause settings is a later, separate step (note it, don't do it silently).
+- ~~Pause-menu settings live in `GameManager.DrawPauseMenu` (IMGUI); U2 builds alongside, retiring
+  them is a later step.~~ **Done 2026-07-16** — `DrawPauseMenu` is gone; `UI/PauseMenu.cs` (canvas,
+  three routes) replaces it and the overlay is the only settings surface.
 
 ### Dependency graph
 
@@ -194,8 +204,9 @@ Size") wired to the UI-scale setting. **EventSystem + input module** configured 
 navigation. `UiTheme` = C# design tokens, `UiKit` = widget prefabs built in code (the USS
 substitute). _Not UI Toolkit_ — runtime UITK in Unity 2022 integrates poorly with the animated 3D
 scene/effects and fights the build-in-code convention; reserve UITK only for possible future
-Editor-side map-editor tooling (STRUCTURE §5.5). IMGUI (pause menu, `HudSkin`) is legacy → folds
-into this kit over later blocks, not ripped out in U1.
+Editor-side map-editor tooling (STRUCTURE §5.5). IMGUI is legacy → folds into this kit over later
+blocks, not ripped out in U1. (The pause menu folded in on 2026-07-16; `HudSkin` + the HUD/results
+IMGUI remain.)
 - **Design tokens** (`UiTheme`): palette (contrast-first, colorblind-safe, its own colors — not
   osu! pink), typography scale, spacing, corner radii, motion curves/durations. All as settings
   where a player would reasonably tune them (UI scale at minimum).
@@ -211,8 +222,9 @@ Slide-over settings panel per `docs/UI-DESIGN.md` §2.1: openable **anywhere via
 shortcut** (incl. during pause), **live-apply everything**, sidebar sections (Gameplay,
 Visuals/Camera, Audio, Skin, Input, UI), **search with match highlight**, range sliders with
 keyboard step + **per-setting reset**, and a **keybinds** section (gameplay + UI shortcuts,
-conflict detection). Backed by `GameSettings`. Build alongside the existing IMGUI pause
-settings — don't remove them this pass.
+conflict detection). Backed by `GameSettings`. ~~Build alongside the existing IMGUI pause
+settings — don't remove them this pass.~~ (Retired 2026-07-16; the overlay is now the only
+settings surface and absorbed the pause menu's Ortho2D-zoom sliders.)
 **Done when:** settings open from a global shortcut, sections+search work, every control
 live-applies and has its own reset, keybinds rebind without silent double-binding.
 
@@ -333,8 +345,10 @@ RES1 lands. IDs provisional.
   Absorbs the carried-over A.6 "fall backdrop". _Deps: —._
 - **E4 — VE system.** Wind, lingering click particles, cursor cross-lines, ramp-with-intensity;
   driven by the E1 event track; falling-mode decorations pure-VE (circles render on top). _Deps: E1._
-- **E5 — Pacing: skip-intro + rest/break timer.** Wire existing `AudioLeadIn`/first-object and
-  `BreakPeriod` to a skippable intro + break countdown; >3 s auto-rest fallback (§5.7). _Deps: —._
+- **E5 — Pacing: skip-intro + rest/break timer. DONE (2026-07-16)**, early + out of wave (direct human
+  task). Intro and break are one feature: `Gameplay/BreakSkip.cs` finds every click-free gap from the hit
+  objects themselves (not `BreakPeriod`, which is optional and absent before the first object) and shows
+  one overlay — bar + countdown + skip button — for gaps ≥ `GameSettings.BreakMinGapMs` (5 s).
 - **EDITOR wave (own board).** Timeline; song + circle playback; scripted autoplay QA (camera/
   cursor drift vs §4); VE-marker track (side panel on/off/level); mode-marker track (incl.
   start-on-floor). No hit-object editing v1 (§5.5). _Deps: E1._
@@ -347,8 +361,11 @@ RES1 lands. IDs provisional.
   neutral **grey/blue placeholder** palette; real art direction decided later against **complete
   layouts** (post-U3), not swatches. Palette core colors are **player-editable settings**
   (semantic slots in `GameSettings`, live-apply); U2 surfaces the color controls.
-- **U2:** global settings shortcut key (osu! uses `Ctrl+O`; pick ours) + whether to eventually
-  retire the IMGUI pause-menu settings once the overlay covers them.
+- **U2 (resolved 2026-07-16, human call):** settings shortcut = **Ctrl+O** (same as osu!'s), and the
+  IMGUI pause-menu settings **are retired** — the overlay is the only settings surface, and the pause
+  menu is exactly three routes (Continue / Restart / Quit) with the Ctrl+O hint on it.
+  _Departs from `docs/UI-DESIGN.md` §2.5, which lists a Settings entry on the pause menu; the
+  shortcut + hint covers §1.4's "reachable from anywhere". Fold into §2.5 if it holds up in play._
 - **U5 (resolved 2026-07-12):** search primary = nerinyan `/search`, fallback = catboy `/api/v2/search`
   (matches the download order); both public/unauthenticated. Preview audio/cover pulled from `b.ppy.sh` /
   `assets.ppy.sh`. **Still to confirm in-editor:** live mirror responses parse as expected (field names
@@ -372,7 +389,10 @@ RES1 lands. IDs provisional.
   rules, anti-ping-pong) + mode weights — needs playtest tuning, propose defaults.
 - **E1/sidecar:** confirm `<md5>.fallcall` location (own store vs alongside `.osz`) + format
   (JSON vs custom text). MD5 hash source confirmed via RES1.
-- **E5:** rest auto-fallback threshold (~3 s?) and whether skip-intro is manual-only or auto.
+- **E5 (resolved 2026-07-16 by implementation):** threshold is **5 s**, a live setting
+  (`BreakMinGapMs`), not a hardcoded ~3 s. Skip is **manual-only** ([Space], rebindable, or the button) —
+  auto-skip would move time under the player, breaking "never lock the player out of control"
+  (UI-DESIGN §1.1). It lands `BreakSkipLeadMs` (2 s) before the next click, never past it.
 
 ## Tips for following agents
 
@@ -388,6 +408,50 @@ RES1 lands. IDs provisional.
 
 _One line per claim/finish so parallel sessions see who's on what. Newest first._
 
+- 2026-07-16 — **Render order + pause menu, done** (opus, direct human task — not a board block; this is
+  the "retire the IMGUI pause settings later" note above): new `Util/RenderOrder.cs` is the single
+  definition of the draw stack (video queue 2501 → dim −200 → follow points −100 → hit objects → cursor
+  → judgement → canvases 0/100/200/300/400) and every call site now reads from it — `BackgroundDim`
+  (its order was inverted, now fixed), `FollowPoints`, `CursorController`, `VideoPlayback`, `MainScreen`,
+  `NavBar`, `SettingsOverlay` (was tied with `NavBar` at 200 → now 400), `SongSelectUI`, `MapBrowserView`.
+  Cursor/judgement bands derive from `BeginSession(hitObjectCount)`, fixing the cursor vanishing under
+  maps >1000 objects. Hit-object stride lives only in `RenderOrder`: `DepthOrder` → `SortingBase` on the
+  three drawables, `* 10` dropped. New `UI/PauseMenu.cs` (canvas at 300) = Continue / Restart / Quit;
+  `GameManager.DrawPauseMenu` + its IMGUI slider helper deleted (−126 lines), so the U2 overlay is the
+  only settings surface and absorbed the 7 Ortho2D-zoom sliders that would otherwise have lost their UI.
+  `GameManager` auto-pauses + swallows keys while the overlay is open and hides its IMGUI HUD under it.
+  Touched `GameManager.cs` — **no board block owns it**, but check before claiming one that does.
+  **Compiles clean (`dotnet build Assembly-CSharp.csproj`, 0 errors); not verified at runtime** — needs a
+  play-mode pass (Esc pause → three buttons; Ctrl+O over gameplay/pause/results; A/S/D in search don't
+  hit; cursor over notes on a >1000-object map).
+- 2026-07-16 — **E5 pacing (skip intro + break timer), done** (opus, direct human task — pulled early out
+  of the parked E-wave): new `Gameplay/BreakSkip.cs` + `GameClock.Seek` + `GameManager.SkipTo`; keybind
+  `skip` = Space; `BreakMinGapMs`/`BreakSkipLeadMs` settings surfaced in the U2 overlay. **Unverified in
+  editor** — needs a play-mode pass (intro skip, mid-map break, video re-sync after the seek).
+- 2026-07-16 — **Hit-sound SFX fix, done** (opus, direct human task — not a board block): bundled the osu!
+  default skin samples (15 hitsounds + `combobreak.mp3`, CC BY-NC 4.0 from `ppy/osu-resources`) in
+  `Assets/Resources/DefaultSkin/`; `HitSoundPlayer` now falls back to them instead of the synthesised
+  clicks (synth deleted), adds osu!'s custom-index→index-1 fallback, and gained `PlayComboBreak`.
+  `ScoreProcessor.OnComboBreak` fires past combo 20 (lazer `ComboEffects`), wired in `GameManager`.
+  Touched `HitSoundPlayer.cs`, `ScoreProcessor.cs`, `GameManager.cs` (+2 lines) — no U6 overlap.
+  **Compiles clean (`dotnet build Assembly-CSharp.csproj`, 0 errors); not verified at runtime.**
+- 2026-07-16 — **U6: the map card** (opus, block still `IN-PROGRESS`): the set row on both listing screens is
+  now one shared art-led card — new `UI/UiMapCard.cs` (artwork bleeding to the rounded edges, scrim doubling
+  as the readability wash *and* the hover tint, text on the bottom, 120 px tall), `UI/UiCoverCache.cs`
+  (**every listed map's art loads up front, not on selection** — 4-at-a-time window, downscaled to 512 px,
+  96-texture LRU; one path for `https://` mirror covers and `file://` map backgrounds) and `UI/UiCoverFit.cs`
+  (uvRect cover-fill, so 2.9:1 covers and 16:9 backgrounds share a card shape). `MapBrowserRows.DefaultSetRow`
+  + `SongSelectUI.DefaultSetRow` both delegate to it — the near-duplicate the U6 pass-1 header flagged is
+  gone. `UiRow` gained `cover`/`scrim` slots; `BeatmapDownloader.CardUrl` (card@2x, ~¼ of cover.jpg's bytes).
+  Local art needs the `.osu` parsed for its background path, so song select walks the carousel ~4 sets/frame
+  (`PrefetchSetArt`) instead of parsing the library in one frame. Touched: new `UI/UiMapCard.cs`,
+  `UI/UiCoverCache.cs`, `UI/UiCoverFit.cs`, `UI/UiRow.cs`, `UI/Browser/{MapBrowserRows,MapBrowser}.cs`,
+  `Gameplay/{SongSelectUI,BeatmapDownloader}.cs`. INDEX regen (60). **Compiles clean (`dotnet build
+  Assembly-CSharp.csproj`, 0 errors, no new warnings); nothing verified at runtime** — the whole change is
+  visual, so it needs an editor pass, the mask/hover path especially (art is masked by the row Fill, and
+  hover now tints the scrim rather than the fill behind it). Follow-ups: card height + scrim alphas are consts in `UiMapCard`, promote to
+  `GameSettings` when the palette lands; `UiCoverCache` eviction can blank a still-visible card (refcount if
+  it bites).
 - 2026-07-15 — **U6 pass 1 code-complete, still `IN-PROGRESS`** (opus): `UI/Browser/MapBrowser.cs` landed (the
   screen: browse state, selection, keyboard flow, download→auto-import / play handoff) + `Bootstrap.cs`
   (`State.Browsing`, **Browse route now opens the browser**, Esc → main, `PlayRequested`/`SetImported` wired),
@@ -469,6 +533,14 @@ _One line per claim/finish so parallel sessions see who's on what. Newest first.
 ## Done log
 
 _Prior wave (R1/R2/A/C/D/B/E + follow-ups) is fully logged in `docs/archive/PLAN-2026-07-11.md`._
+
+- 2026-07-16 — **Autoplay** (first pass, groundwork for testing / beatmap preview) → new
+  `Gameplay/AutoPilot.cs` walks the map timeline and emits cursor position + tap state; `CursorController.SetAuto`
+  drives the cursor hands-free (bypasses mouse/keys via new `Auto` flag); `GameManager` builds an `AutoPilot`
+  from `GameSettings.Autoplay` and feeds it each frame before the drawables tick. Sphere camera follows the
+  notes (`ViewModeController.AimAt` + `FirstPersonCamera.Auto`); Ortho2D uses its own zoomer. Restart-apply
+  toggle in the settings overlay (Gameplay). Falling mode not wired yet. Plays through hit circles / sliders /
+  spinners cleanly in both Sphere and Ortho2D.
 
 - 2026-07-15 — **RES2** osu! online API / mirror / preview-CDN audit → `docs/osu-api.md`: preview clip
   fully characterised (Ogg/Vorbis, 10.1 s, `[PreviewTime−100ms, +10000ms]`, cross-correlation-proven);

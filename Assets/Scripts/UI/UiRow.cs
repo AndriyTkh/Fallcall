@@ -26,5 +26,10 @@ namespace OsuUnity.UI
         public TMP_Text subtitle;
         [Tooltip("Selection accent; the screen enables it on the selected row.")]
         public Image marker;
+        [Tooltip("The map's artwork, filling the card behind the text. Optional; difficulty rows leave it null. " +
+                 "Filled via UiMapCard.Bind — pair it with a UiCoverFit so any aspect crops instead of stretching.")]
+        public RawImage cover;
+        [Tooltip("Readability wash over the artwork; also the graphic tinted for hover/press. Optional.")]
+        public Image scrim;
     }
 }

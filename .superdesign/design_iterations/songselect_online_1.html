@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fallcall — Song Select — Online</title>
+<link rel="stylesheet" href="theme_1.css">
+<link rel="stylesheet" href="art.css">
+<link rel="stylesheet" href="songselect.css">
+<style>
+  /* online rows carry one extra column and nothing else changes */
+  .row.online { grid-template-columns: 4px minmax(0, 1fr) 210px 46px 118px 44px; position: relative; }
+  .row.online .dl { justify-self: end; }
+  .datum.online .d-star-cell { min-width: 168px; }
+  .get {
+    font: 600 10px/1 var(--font-sans); letter-spacing: .16em; text-transform: uppercase;
+    padding: 10px 14px; border: var(--edge); background: var(--ink); color: var(--plate); cursor: pointer;
+    margin-top: 8px;
+  }
+</style>
+</head>
+<body style="--map-accent:#5f7c8c">
+
+<div class="screen">
+
+  <div class="world">
+    <div class="wash"></div>
+    <div class="plane p1"></div>
+    <div class="plane p2"></div>
+    <div class="plane p3"></div>
+  </div>
+
+  <header class="rail">
+    <div class="mark">FALL<span>CALL</span></div>
+    <div class="seg" role="group" aria-label="Library source">
+      <button aria-pressed="false">Local</button>
+      <button aria-pressed="true">Online</button>
+    </div>
+    <div class="search"><div class="prompt">type to search the online database</div></div>
+    <div class="sort">SORT <b>RANKED</b> ↓</div>
+    <div class="count">2 DOWNLOADING</div>
+  </header>
+
+  <main class="stage">
+    <div class="column">
+
+      <div class="row online">
+        <i class="r-spine"></i>
+        <span class="r-title">Aleph-0</span>
+        <span class="r-artist">Cranky</span>
+        <span class="r-flags"></span>
+        <span class="r-star-cell"><span class="r-count">×3</span><span class="star r-star q3">4.62</span></span>
+        <button class="dl" aria-label="Download Aleph-0">↓</button>
+      </div>
+
+      <!-- mid-download: the row does not become a progress bar, it grows one. -->
+      <div class="row online">
+        <i class="r-spine" style="background:var(--map-accent)"></i>
+        <span class="r-title">Angel's Salad</span>
+        <span class="r-artist">Sakuzyo</span>
+        <span class="r-flags"><i class="flag">V</i></span>
+        <span class="r-star-cell"><span class="r-count">×5</span><span class="star r-star q4">6.61</span></span>
+        <span class="r-count" style="justify-self:end">61%</span>
+        <div class="progress"><span class="bar" style="width:61%"></span></div>
+      </div>
+
+      <div class="row online">
+        <i class="r-spine" style="background:var(--map-accent)"></i>
+        <span class="r-title">AXION ~ 光の残響</span>
+        <span class="r-artist">Camellia</span>
+        <span class="r-flags"><i class="flag">V</i><i class="flag">SB</i></span>
+        <span class="r-star-cell"><span class="r-count">×8</span><span class="star r-star q5">8.13</span></span>
+        <span class="r-count" style="justify-self:end">8%</span>
+        <div class="progress"><span class="bar" style="width:8%"></span></div>
+      </div>
+
+      <article class="datum online" aria-selected="true">
+        <i class="d-spine"></i>
+        <div class="art"><div class="img a-neon"></div></div>
+        <div class="d-info">
+          <h1 class="d-title">Bangin' Burst</h1>
+          <div class="d-by"><b>xi</b><span class="sep">/</span>mapped by <b>Sotarks</b></div>
+          <div class="d-meta">
+            <span class="status ranked">Ranked</span>
+            <span class="m">2:07</span>
+            <span class="m">185 BPM</span>
+            <span class="m">♡ 3,988</span>
+            <span class="m">14.2 MB</span>
+            <i class="flag">V</i>
+          </div>
+        </div>
+        <div class="d-star-cell">
+          <div class="d-diffs">5 DIFFICULTIES</div>
+          <div class="star d-star q4"><span class="g">★</span>6.94</div>
+          <button class="get">⏎ Download</button>
+        </div>
+      </article>
+
+      <div class="row online">
+        <i class="r-spine"></i>
+        <span class="r-title">Blue Dragon</span>
+        <span class="r-artist">Nhelv</span>
+        <span class="r-flags"></span>
+        <span class="r-star-cell"><span class="r-count">×3</span><span class="star r-star q3">5.14</span></span>
+        <button class="dl" aria-label="Download Blue Dragon">↓</button>
+      </div>
+
+      <div class="row online">
+        <i class="r-spine"></i>
+        <span class="r-title">Cartesian Dreams</span>
+        <span class="r-artist">Nhato</span>
+        <span class="r-flags"><i class="flag">SB</i></span>
+        <span class="r-star-cell"><span class="r-count">×2</span><span class="star r-star q2">2.13</span></span>
+        <span class="r-count" style="justify-self:end; color:var(--ink)">✓</span>
+      </div>
+
+      <div class="row online">
+        <i class="r-spine"></i>
+        <span class="r-title">終焉の空</span>
+        <span class="r-artist">BlueTwilight</span>
+        <span class="r-flags"></span>
+        <span class="r-star-cell"><span class="r-count">×7</span><span class="star r-star q5">8.44</span></span>
+        <button class="dl" aria-label="Download 終焉の空">↓</button>
+      </div>
+
+    </div>
+
+    <aside class="caption">
+      <h5>Online · same screen, one more column</h5>
+      <p>Same rail, same datum, same star column. Online is a source, not a
+         destination — so it is a toggle, not a page. On an online row Enter
+         downloads, because downloading is the only thing that row can do.</p>
+    </aside>
+  </main>
+
+  <footer class="foot">
+    <div class="key"><kbd>⏎</kbd><span>Download</span></div>
+    <div class="key"><kbd>↑</kbd><kbd>↓</kbd><span>Set</span></div>
+    <div class="key"><kbd>/</kbd><span>Filters</span></div>
+    <div class="key"><kbd>⇥</kbd><span>Panes</span></div>
+    <div class="key"><kbd>esc</kbd><span>Back to local</span></div>
+  </footer>
+
+</div>
+</body>
+</html>

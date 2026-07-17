@@ -8,6 +8,9 @@
 // material set rather than a per-frame mesh-colour rewrite.
 // Cross-slider overlap (two sliders sharing screen pixels) can still bite; the stencil
 // buffer clears each frame. Acceptable for now.
+//
+// Queue "Transparent" (3000) puts this in the shared gameplay band; what it draws above and
+// below is decided by the sortingOrder SliderObject sets from Util/RenderOrder, not here.
 Shader "Osu/SliderBody"
 {
     Properties

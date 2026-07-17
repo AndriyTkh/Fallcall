@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using OsuUnity.Beatmaps;
 using OsuUnity.Gameplay;
 using OsuUnity.Skinning;
+using OsuUnity.Util;
 using UnityEngine;
 
 // INDEX: Follow points — the fading line of arrows guiding the eye from one object to the next.
@@ -29,7 +30,8 @@ namespace OsuUnity.Visual
 
         private GameContext _ctx;
         private Playfield _pf;
-        private Sprite _sprite;
+        private List<Sprite> _frames;   // followpoint animation frames (>=1); frame 0 may be blank
+        private double _frameMs;        // per-frame duration at the skin's animation rate
         private List<Conn> _conns;
 
         private struct Pt
@@ -53,7 +55,10 @@ namespace OsuUnity.Visual
         {
             _ctx = ctx;
             _pf = ctx.Playfield;
-            _sprite = SkinSprites.FollowPoint;
+            _frames = SkinSprites.FollowPointFrames(GameSettings.DefaultFollowPoint);
+            float fps = Skin.Current != null && Skin.Current.Config.AnimationFramerate > 0f
+                ? Skin.Current.Config.AnimationFramerate : 60f;
+            _frameMs = 1000.0 / fps;
 
             _conns = new List<Conn>();
             var objs = ctx.Beatmap.HitObjects;
@@ -126,9 +131,9 @@ namespace OsuUnity.Visual
                 var go = new GameObject("FollowPoint");
                 go.transform.SetParent(transform, false);
                 var sr = go.AddComponent<SpriteRenderer>();
-                sr.sprite = _sprite;
+                sr.sprite = _frames[0];
                 sr.color = new Color(1, 1, 1, 0);
-                sr.sortingOrder = -50; // behind hit objects (which use positive DepthOrder*10)
+                sr.sortingOrder = RenderOrder.FollowPoints;
                 c.Renderers[i] = sr;
             }
         }
@@ -162,7 +167,17 @@ namespace OsuUnity.Visual
                     alpha = Mathf.Clamp01(1f - t);
                     posOsu = p.ToOsu;
                 }
-                Place(c.Renderers[i], posOsu, p.DirOsu, alpha, dia);
+
+                // Cycle the arrow animation, started when this point fades in — points along one
+                // connection fade in at staggered times, so the shimmer travels down the line as in osu!.
+                SpriteRenderer sr = c.Renderers[i];
+                if (sr != null && _frames.Count > 1)
+                {
+                    double elapsed = time - p.FadeInTime;
+                    int idx = elapsed <= 0 ? 0 : (int)(elapsed / _frameMs) % _frames.Count;
+                    sr.sprite = _frames[idx];
+                }
+                Place(sr, posOsu, p.DirOsu, alpha, dia);
             }
         }
 

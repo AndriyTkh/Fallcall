@@ -17,6 +17,14 @@ namespace OsuUnity.UI
         public readonly List<BrowseDiff> Diffs = new List<BrowseDiff>();
         public BeatmapDownloadStatus Status = BeatmapDownloadStatus.NotDownloaded;
 
+        // Set-level metadata the mirror returns (osu!-API shape). Ranked/… state is the mirror's own
+        // string (ranked/loved/graveyard…); the two booleans back the Extra filters (client-side, §7 —
+        // the mirror ignores its own e= param, but every result already carries these flags).
+        public string RankState = "";
+        public bool Video, Storyboard;
+        public long PlayCount;
+        public int FavouriteCount;
+
         public double StarsLo => Diffs.Count > 0 ? Diffs[0].Stars : 0;                  // Diffs are sorted easiest → hardest
         public double StarsHi => Diffs.Count > 0 ? Diffs[Diffs.Count - 1].Stars : 0;
     }
@@ -29,8 +37,66 @@ namespace OsuUnity.UI
         public int LengthSec;
     }
 
-    /// <summary>Result ordering. The mirror's own relevance order is <see cref="Relevance"/> (no re-sort).</summary>
-    public enum BrowseSort { Relevance, Stars, Length, Bpm, Title, Artist }
+    /// <summary>
+    /// Beatmap category = the osu! listing's leaderboard-state row. Applied <b>server-side</b> via the
+    /// mirror's <c>status</c> int (verified on osu.direct 2026-07-16): a single int, so the osu default
+    /// "Has Leaderboard" (ranked∪approved∪qualified∪loved) is expressed by omitting the param — the
+    /// mirror's own default listing. Favourites / My Maps are login-scoped and so absent (the browser is
+    /// credential-free by design, <c>docs/osu-api.md</c> §4/§8).
+    /// </summary>
+    public enum BrowseCategory { HasLeaderboard, Ranked, Qualified, Loved, Pending, Wip, Graveyard }
+
+    /// <summary>
+    /// Result ordering, matching the osu! listing's "Sort by" row. Applied <b>server-side</b>: the mirror
+    /// sorts far better than we could over the 50-row page it returns. Each maps to a mirror-sortable
+    /// attribute (<c>docs/osu-api.md</c> §7) — osu!'s "Rating" is absent because no such attribute exists
+    /// on the mirror.
+    /// </summary>
+    public enum BrowseSort { Title, Artist, Difficulty, Ranked, Plays, Favourites }
+
+    /// <summary>Maps the category / sort choices onto the mirror-search query parameters.</summary>
+    public static class BrowseQuery
+    {
+        /// <summary>The osu! listing order of the category words (first is the default row, "Has Leaderboard").</summary>
+        public static readonly string[] CategoryWords =
+            { "Has Leaderboard", "Ranked", "Qualified", "Loved", "Pending", "WIP", "Graveyard" };
+
+        public static readonly string[] SortWords =
+            { "Title", "Artist", "Difficulty", "Ranked", "Plays", "Favourites" };
+
+        public static readonly string[] ExtraWords = { "Has Video", "Has Storyboard" };
+
+        /// <summary>The mirror <c>status</c> int for a category, or <c>null</c> for "Has Leaderboard" (omit).</summary>
+        public static int? Status(BrowseCategory c) => c switch
+        {
+            BrowseCategory.Ranked => 1,
+            BrowseCategory.Qualified => 3,
+            BrowseCategory.Loved => 4,
+            BrowseCategory.Pending => 0,
+            BrowseCategory.Wip => -1,
+            BrowseCategory.Graveyard => -2,
+            _ => null,   // HasLeaderboard — the mirror's default listing
+        };
+
+        /// <summary>The mirror <c>sort=attr:dir</c> string for a sort choice + direction.</summary>
+        public static string Sort(BrowseSort s, bool desc)
+        {
+            string attr = s switch
+            {
+                BrowseSort.Title => "title",
+                BrowseSort.Artist => "artist",
+                BrowseSort.Difficulty => "beatmaps.difficulty_rating",
+                BrowseSort.Ranked => "ranked_date",
+                BrowseSort.Plays => "play_count",
+                BrowseSort.Favourites => "favourite_count",
+                _ => "ranked_date",
+            };
+            return attr + (desc ? ":desc" : ":asc");
+        }
+
+        /// <summary>The natural default direction for a sort (text A→Z; everything else biggest/newest first).</summary>
+        public static bool DefaultDesc(BrowseSort s) => s != BrowseSort.Title && s != BrowseSort.Artist;
+    }
 
     /// <summary>
     /// The star / length / BPM ranges narrowing the mirror's results. Applied <b>client-side</b>: the mirrors'
@@ -46,21 +112,29 @@ namespace OsuUnity.UI
         public float LenMin = LenLo, LenMax = LenHi;   // seconds
         public float BpmMin = BpmLo, BpmMax = BpmHi;
 
+        // "Extra" row (osu! listing): set-level, applied client-side on every returned result — the mirror
+        // ignores its own e= param but each result carries the video/storyboard flags (docs/osu-api.md §7).
+        public bool VideoOnly, StoryboardOnly;
+
         public bool StarActive => StarMin > StarLo + 0.01f || StarMax < StarHi - 0.01f;
         public bool LenActive => LenMin > LenLo + 0.5f || LenMax < LenHi - 0.5f;
         public bool BpmActive => BpmMin > BpmLo + 0.5f || BpmMax < BpmHi - 0.5f;
-        public bool Any => StarActive || LenActive || BpmActive;
+        public bool Any => StarActive || LenActive || BpmActive || VideoOnly || StoryboardOnly;
 
         public void Reset()
         {
             StarMin = StarLo; StarMax = StarHi;
             LenMin = LenLo; LenMax = LenHi;
             BpmMin = BpmLo; BpmMax = BpmHi;
+            VideoOnly = StoryboardOnly = false;
         }
 
-        /// <summary>A set passes when <b>any</b> of its difficulties does (same rule as local song select).</summary>
+        /// <summary>A set passes when it clears the set-level Extra gates and <b>any</b> of its difficulties
+        /// clears the range gates (same rule as local song select).</summary>
         public bool Passes(BrowseSet set)
         {
+            if (VideoOnly && !set.Video) return false;
+            if (StoryboardOnly && !set.Storyboard) return false;
             foreach (var d in set.Diffs)
                 if (Passes(d)) return true;
             return false;

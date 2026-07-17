@@ -1,0 +1,28 @@
+/* Hostile-artwork stand-ins. Generated, not curated — real covers are arbitrary,
+   so the mockup must not be tested against art someone chose to flatter it. */
+
+.img { background-repeat: no-repeat; background-size: cover; background-position: center; }
+
+.a-busy   { background: conic-gradient(from 210deg, #ff5f3a, #ffd93d, #35d0a5, #2f6fed, #b04ce8, #ff5f3a); filter: saturate(1.2); }
+.a-anime  { background: linear-gradient(160deg, #ffd7e6 0%, #b6d8ff 42%, #2b2f45 43%, #12131c 100%), radial-gradient(circle at 62% 30%, #fff 0 12%, transparent 13%); }
+.a-photo  { background: linear-gradient(#8fa6b8, #d8cbb2 58%, #5c4b3a); }
+.a-night  { background: radial-gradient(circle at 30% 22%, #6f7fa8 0 8%, #1b2233 42%, #05070c 100%); }
+.a-neon   { background: repeating-linear-gradient(135deg, #0d0f1a 0 8px, #16203a 8px 16px), radial-gradient(circle at 70% 70%, #00ffd0 0 10%, transparent 11%); }
+.a-pastel { background: linear-gradient(200deg, #f6e7c1, #cfe6df 60%, #9fb6c9); }
+.a-void   { background: #05060a; }
+.a-white  { background: #fdfdfb; }
+.a-blown  { background: radial-gradient(circle at 50% 42%, #ffffff 0 58%, #f4f2ec 100%); }
+.a-mono   { background: repeating-linear-gradient(90deg, #1a1a1a 0 6px, #2c2c2c 6px 12px); }
+.a-grid   { background: repeating-linear-gradient(0deg, #cfd6da 0 10px, #e6ecef 10px 20px), repeating-linear-gradient(90deg, #cfd6da 0 10px, transparent 10px 20px); }
+
+/* the cover that is 80% jpeg-compressed text — the genuinely worst case */
+.a-text {
+  background: linear-gradient(#f5f2e8, #ded7c4);
+  display: grid; place-content: center; padding: 6px;
+}
+.a-text::after {
+  content: 'FULL VERSION\A NOW ON\A BANDCAMP\A ★★★★★';
+  white-space: pre; text-align: center;
+  font: 700 13px/1.15 var(--font-sans); color: #c2261f;
+  text-shadow: 0 0 2px #fff, 1px 1px 0 #fff;
+}

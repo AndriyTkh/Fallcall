@@ -9,7 +9,9 @@ namespace OsuUnity.Visual
 {
     public sealed class SliderObject : DrawableHitObject
     {
-        public int DepthOrder;
+        /// <summary>This object's sorting-order slot, from <see cref="Util.RenderOrder.HitObject"/>.
+        /// The parts below sit at -5…+3 around it, inside <see cref="Util.RenderOrder.HitObjectStride"/>.</summary>
+        public int SortingBase;
 
         private Slider _slider;
         private double _spawnTime;
@@ -20,7 +22,7 @@ namespace OsuUnity.Visual
         private Material _bodyMat, _borderMat;      // per-slider instances we own + tint each frame
         private Color _trackColor, _borderColor;    // rgb; alpha applied per frame via _Color
         private const int JoinSegments = 10;        // round-join fan resolution at each path vertex
-        private SpriteRenderer _headBody, _headOverlay, _approach, _follow, _tail;
+        private SpriteRenderer _headBody, _headOverlay, _approach, _follow;
         private SpriteRenderer _revHead, _revTail;          // reverse arrows (skin only)
         private readonly List<SpriteRenderer> _tickDots = new List<SpriteRenderer>(); // sliderscorepoints
         private SkinNumber _number;
@@ -45,12 +47,9 @@ namespace OsuUnity.Visual
 
             Color combo = Ctx.ComboColour(Object.ComboColour);
             float dia = ctx.RadiusWorld * 2f;
-            int b = DepthOrder * 10;
+            int b = SortingBase;
 
             BuildBody(combo, b - 5);
-
-            _tail = AddSprite(transform, SkinSprites.HitCircle, combo * 0.8f, dia, b - 4);
-            Place(_tail.transform, OsuAt(1.0));
 
             _headBody = AddSprite(transform, SkinSprites.HitCircle, combo, dia, b);
             Place(_headBody.transform, Object.Position);
@@ -462,7 +461,6 @@ namespace OsuUnity.Visual
         {
             SetAlpha(_headBody, a * 0.85f);
             SetAlpha(_headOverlay, a);
-            SetAlpha(_tail, a * 0.6f);
             SetAlpha(_revHead, a);
             SetAlpha(_revTail, a);
             foreach (var dot in _tickDots) SetAlpha(dot, a);

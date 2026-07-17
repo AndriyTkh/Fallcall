@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fallcall — Song Select — Worst-case Artwork Proof</title>
+<link rel="stylesheet" href="theme_1.css">
+<link rel="stylesheet" href="art.css">
+<link rel="stylesheet" href="songselect.css">
+<style>
+  body { overflow-y: auto !important; }
+  .proof { padding: 42px var(--gutter) 60px; min-height: 100vh; position: relative; }
+  .proof > header { margin-bottom: 34px; max-width: 70ch; }
+  .proof h1 { font-size: 26px; font-weight: 600; letter-spacing: -.01em; }
+  .proof header p { font: 400 12.5px/1.7 var(--font-mono); color: var(--ink-2); margin-top: 10px; }
+  .case { margin-bottom: 30px; }
+  .case-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 10px; }
+  .case-head h2 { font: 600 10px/1 var(--font-sans); letter-spacing: .2em; text-transform: uppercase; }
+  .case-head p { font: 400 11px/1 var(--font-mono); color: var(--ink-3); }
+  .case .datum { margin: 0; max-width: 1140px; }
+  .sample { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+  .sw { width: 26px; height: 26px; border: var(--edge); }
+  .sample p { font: 400 10.5px/1.5 var(--font-mono); color: var(--ink-2); }
+  .refused { max-width: 1140px; border: 2px dashed var(--ink-3); padding: 16px; margin-top: 40px; }
+  .refused h3 { font: 600 10px/1 var(--font-sans); letter-spacing: .2em; text-transform: uppercase; color: var(--ink-2); margin-bottom: 12px; }
+  .bad { height: 132px; position: relative; overflow: hidden; border: 1px solid var(--rule); }
+  .bad .img { position: absolute; inset: 0; }
+  .bad .scrim { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(0,0,0,.55), transparent 70%); }
+  .bad .t { position: absolute; left: 20px; top: 34px; font-size: 32px; font-weight: 600; color: #fff; text-shadow: 0 2px 12px rgba(0,0,0,.5); }
+  .bad .s { position: absolute; left: 20px; top: 76px; font: 500 13px/1 var(--font-mono); color: rgba(255,255,255,.8); }
+  .refused p { font: 400 11px/1.6 var(--font-mono); color: var(--ink-2); margin-top: 12px; max-width: 80ch; }
+</style>
+</head>
+<body>
+
+<div class="proof">
+  <header>
+    <h1>Worst-case artwork — same layout, four covers</h1>
+    <p>The rule is structural, not hopeful: <b>no text is ever placed on artwork.</b>
+       The cover is quarantined in a hard-framed, recessed square. Nothing outside that
+       square changes when the cover changes, so there is no cover that can break the
+       card. The only thing the artwork is allowed to touch is the 8px spine and the
+       far background wash — and both are fed a <b>clamped</b> sample.</p>
+  </header>
+
+  <!-- (a) blinding white ---------------------------------------------------- -->
+  <div class="case" style="--map-accent:#6f7a80">
+    <div class="case-head"><h2>(a) Blinding white</h2><p>#fdfdfb, blown highlights, no edges of its own</p></div>
+    <article class="datum" aria-selected="true">
+      <i class="d-spine"></i>
+      <div class="art"><div class="img a-blown"></div></div>
+      <div class="d-info">
+        <h1 class="d-title">Blue Zenith</h1>
+        <div class="d-by"><b>Hommarju</b><span class="sep">/</span>mapped by <b>Asphyxia</b></div>
+        <div class="d-meta">
+          <span class="status ranked">Ranked</span>
+          <span class="m">4:16</span><span class="m">200 BPM</span><span class="m">♡ 8,412</span>
+          <i class="flag">V</i>
+        </div>
+      </div>
+      <div class="d-star-cell">
+        <div class="d-diffs">4 DIFFICULTIES</div>
+        <div class="star d-star q4"><span class="g">★</span>7.79</div>
+        <div class="d-diffs">FOUR DIMENSIONS</div>
+      </div>
+    </article>
+    <div class="sample">
+      <div class="sw" style="background:#fdfdfb"></div>
+      <div class="sw" style="background:#6f7a80"></div>
+      <p>sampled #FDFDFB → clamped to #6F7A80 (L 42–62%, S ≤ 38%). A white cover
+         cannot produce a glowing spine; the frame still holds its own edge against the paper.</p>
+    </div>
+  </div>
+
+  <!-- (b) near black -------------------------------------------------------- -->
+  <div class="case" style="--map-accent:#5a6270">
+    <div class="case-head"><h2>(b) Near-black void</h2><p>#05060a, no subject, no contrast</p></div>
+    <article class="datum" aria-selected="true">
+      <i class="d-spine"></i>
+      <div class="art"><div class="img a-void"></div></div>
+      <div class="d-info">
+        <h1 class="d-title">終焉の空</h1>
+        <div class="d-by"><b>BlueTwilight</b><span class="sep">/</span>mapped by <b>bluehazel</b></div>
+        <div class="d-meta">
+          <span class="status">Graveyard</span>
+          <span class="m">6:02</span><span class="m">174 BPM</span><span class="m">♡ 331</span>
+        </div>
+      </div>
+      <div class="d-star-cell">
+        <div class="d-diffs">7 DIFFICULTIES</div>
+        <div class="star d-star q5"><span class="g">★</span>8.44</div>
+        <div class="d-diffs">終焉</div>
+      </div>
+    </article>
+    <div class="sample">
+      <div class="sw" style="background:#05060a"></div>
+      <div class="sw" style="background:#5a6270"></div>
+      <p>sampled #05060A → clamped to #5A6270. Identical layout to (a). Nothing moved,
+         nothing dimmed, no scrim was needed — because no text was ever at risk.</p>
+    </div>
+  </div>
+
+  <!-- (c) text-covered ------------------------------------------------------ -->
+  <div class="case" style="--map-accent:#8e6a63">
+    <div class="case-head"><h2>(c) Cover that is already text</h2><p>the genuinely worst case: art competing with our own type</p></div>
+    <article class="datum" aria-selected="true">
+      <i class="d-spine"></i>
+      <div class="art"><div class="img a-text"></div></div>
+      <div class="d-info">
+        <h1 class="d-title">Cirno's Perfect Math Class</h1>
+        <div class="d-by"><b>ZUN / IOSYS</b><span class="sep">/</span>mapped by <b>Asphyxia</b></div>
+        <div class="d-meta">
+          <span class="status">Loved</span>
+          <span class="m">2:41</span><span class="m">180 BPM</span><span class="m">♡ 5,120</span>
+          <i class="flag">SB</i>
+        </div>
+      </div>
+      <div class="d-star-cell">
+        <div class="d-diffs">7 DIFFICULTIES</div>
+        <div class="star d-star q3"><span class="g">★</span>4.88</div>
+        <div class="d-diffs">Lunatic</div>
+      </div>
+    </article>
+    <div class="sample">
+      <div class="sw" style="background:#c2261f"></div>
+      <div class="sw" style="background:#8e6a63"></div>
+      <p>The cover's own typography stays boxed. It cannot align with, overlap, or
+         out-shout the title, because it is 132px away behind a 2px rule.</p>
+    </div>
+  </div>
+
+  <!-- (d) busy ------------------------------------------------------------- -->
+  <div class="case" style="--map-accent:#7c6a92">
+    <div class="case-head"><h2>(d) Maximum saturation</h2><p>full-spectrum conic, every hue at once</p></div>
+    <article class="datum" aria-selected="true">
+      <i class="d-spine"></i>
+      <div class="art"><div class="img a-busy"></div></div>
+      <div class="d-info">
+        <h1 class="d-title">Extra Stage ~ 光の消える瞬間に</h1>
+        <div class="d-by"><b>t+pazolite</b><span class="sep">/</span>mapped by <b>Nathan</b></div>
+        <div class="d-meta">
+          <span class="status ranked">Ranked</span>
+          <span class="m">4:34</span><span class="m">200 BPM</span><span class="m">♡ 12,904</span>
+          <i class="flag">V</i><i class="flag">SB</i>
+        </div>
+      </div>
+      <div class="d-star-cell">
+        <div class="d-diffs">12 DIFFICULTIES</div>
+        <div class="star d-star q4"><span class="g">★</span>7.18</div>
+        <div class="d-diffs">1.62 — 8.97</div>
+      </div>
+    </article>
+    <div class="sample">
+      <div class="sw" style="background:#ff5f3a"></div>
+      <div class="sw" style="background:#7c6a92"></div>
+      <p>Sampling averages, then clamps. The screen borrows the map's colour without
+         ever letting the map set the screen's contrast.</p>
+    </div>
+  </div>
+
+  <!-- what we refused ------------------------------------------------------- -->
+  <div class="refused">
+    <h3>✗ Refused — the convention this replaces</h3>
+    <div class="bad">
+      <div class="img a-blown"></div>
+      <div class="scrim"></div>
+      <div class="t">Blue Zenith</div>
+      <div class="s">Hommarju · ★ 7.79</div>
+    </div>
+    <p>Full-bleed cover, gradient scrim, white type. It works on the covers you tested
+       with and fails on the ones your players own: on this blown-out white the scrim is
+       the only thing keeping the title alive, and the scrim is a bet. Every genre client
+       makes this bet. We do not take it — the art gets a window, the text gets a plate.
+       That single decision is what constraint 4.1 costs, and it is the cheapest price
+       on the board.</p>
+  </div>
+</div>
+
+</body>
+</html>

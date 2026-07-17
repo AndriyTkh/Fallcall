@@ -14,6 +14,8 @@ namespace OsuUnity.UI
     /// <summary>
     /// Shared input helpers for menu shortcuts. <see cref="Typing"/> lets global single-key shortcuts
     /// (B, Enter, …) stand down while the player is typing in a text field, so they don't fire mid-search.
+    /// <see cref="Consume"/>/<see cref="Consumed"/> stop one keypress from being acted on twice in the
+    /// same frame by two different screens.
     /// </summary>
     public static class UiInput
     {
@@ -31,6 +33,19 @@ namespace OsuUnity.UI
                 return legacy != null && legacy.isFocused;
             }
         }
+
+        private static int _consumedFrame = -1;
+
+        /// <summary>
+        /// Claim this frame's keypress. A screen that acts on a key and, in doing so, reveals another
+        /// screen must call this: <c>Input.GetKeyDown</c> stays true for the rest of the frame, so the
+        /// screen just revealed would otherwise see the same press and act on it too (e.g. Esc backing
+        /// out of browse to the main screen, which then read that same Esc as Quit).
+        /// </summary>
+        public static void Consume() => _consumedFrame = Time.frameCount;
+
+        /// <summary>True when another screen already acted on this frame's keypress.</summary>
+        public static bool Consumed => _consumedFrame == Time.frameCount;
     }
 
     /// <summary>
@@ -88,7 +103,7 @@ namespace OsuUnity.UI
 
         private void Build()
         {
-            var canvas = UiKit.CreateCanvas("NavBar", sortOrder: 200);
+            var canvas = UiKit.CreateCanvas("NavBar", Util.RenderOrder.CanvasNavBar);
             _root = canvas.gameObject;
             _group = _root.AddComponent<CanvasGroup>();
 

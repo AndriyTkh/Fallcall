@@ -1,18 +1,37 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
+using OsuUnity.Util;
 using UnityEngine;
 using UnityEngine.Networking;
+using Debug = UnityEngine.Debug;
 
-// INDEX: Public osu! mirror client (no auth) — .osz download by set id (nerinyan→catboy) plus text search returning osu!-API-shaped beatmapset metadata for the song-select Online tab (U5).
+// INDEX: Public osu! mirror client (no auth) — .osz download by set id (osu.direct→catboy) plus text search returning osu!-API-shaped beatmapset metadata for the song-select Online tab (U5). Mirrors must accept TLS 1.2: Unity 2022 can't do 1.3.
 namespace OsuUnity.Gameplay
 {
-    /// <summary>Downloads .osz archives and searches beatmaps via public osu! mirrors (no auth/API key required).</summary>
+    /// <summary>
+    /// Downloads .osz archives and searches beatmaps via public osu! mirrors (no auth/API key required).
+    /// <para>
+    /// <b>Any mirror added here must accept TLS 1.2.</b> UnityWebRequest on Unity 2022 tops out at TLS 1.2,
+    /// so a TLS-1.3-only host is unreachable from the game no matter how healthy it looks from curl or a
+    /// browser — it fails in ~100 ms with <c>ConnectionError: Unable to complete SSL connection</c>, which
+    /// reads like a network blip rather than the permanent, host-wide wall it is. Check before adding:
+    /// <c>openssl s_client -connect HOST:443 -servername HOST -tls1_2</c> must reach
+    /// <c>Verify return code: 0</c>; TLS-alert 70 (<c>protocol version</c>) means Unity can never reach it.
+    /// See <c>docs/osu-api.md</c> §7.
+    /// </para>
+    /// </summary>
     public static class BeatmapDownloader
     {
+        /// <summary>Download mirrors, tried in order; the caller falls through on failure. nerinyan is absent:
+        /// as of 2026-07-16 it answers <c>404</c> for every set id tried (catboy and osu.direct serve those
+        /// same ids), so it can only cost a wasted round-trip. catboy trails osu.direct because Unity 2022
+        /// cannot negotiate TLS with it at all (see the class remarks) — it is kept only so this list stays
+        /// correct if that ceiling lifts.</summary>
         public static string[] MirrorUrls(int setId) => new[]
         {
-            $"https://api.nerinyan.moe/d/{setId}",
+            $"https://osu.direct/api/d/{setId}",
             $"https://catboy.best/d/{setId}",
         };
 
@@ -28,10 +47,18 @@ namespace OsuUnity.Gameplay
         /// <summary>The set's cover art (jpg).</summary>
         public static string CoverUrl(int setId) => $"https://assets.ppy.sh/beatmaps/{setId}/covers/cover.jpg";
 
+        /// <summary>
+        /// The set's list-card art (800×280 jpg) — the variant to use when fetching artwork for a whole page
+        /// of results. <see cref="CoverUrl"/> is ~4× the bytes for pixels a card-sized rect throws away.
+        /// </summary>
+        public static string CardUrl(int setId) => $"https://assets.ppy.sh/beatmaps/{setId}/covers/card@2x.jpg";
+
         public static IEnumerator Download(string url, string destPath, Action<float> onProgress, Action<bool> onDone)
         {
             using var req = UnityWebRequest.Get(url);
             req.downloadHandler = new DownloadHandlerFile(destPath) { removeFileOnAbort = true };
+            ApiLog.Begin("download", url);
+            var sw = Stopwatch.StartNew();
             var op = req.SendWebRequest();
 
             while (!op.isDone)
@@ -39,6 +66,8 @@ namespace OsuUnity.Gameplay
                 onProgress?.Invoke(req.downloadProgress);
                 yield return null;
             }
+
+            ApiLog.End("download", req, sw);
 
             if (req.result != UnityWebRequest.Result.Success)
             {
@@ -72,32 +101,56 @@ namespace OsuUnity.Gameplay
         {
             public int id;
             public string title, artist, creator;
+            public string status;            // ranked / qualified / loved / pending / wip / graveyard / approved
+            public bool video, storyboard;   // back the "Extra" filters (client-side — see MapBrowserModel)
+            public long play_count;
+            public int favourite_count;
             public OnlineBeatmap[] beatmaps;
         }
 
         [Serializable]
         private sealed class SearchWrapper { public OnlineBeatmapset[] items; }
 
-        /// <summary>Search endpoints tried in order. Both mirror osu!'s API shape and return a top-level JSON
-        /// array of beatmapsets; an empty query returns a default ranked listing (nerinyan). <paramref name="mode"/>
-        /// 0 = osu!standard. Note the two mirrors do <b>not</b> share parameter names (docs/osu-api.md §7):
-        /// nerinyan takes <c>q/m/ps</c>, catboy takes <c>query/mode/limit</c> — catboy silently ignores an
-        /// unknown <c>q</c> and answers with its default listing, so the query must be spelled its way.</summary>
-        public static string[] SearchUrls(string query, int mode)
+        /// <summary>Search endpoints tried in order. The response is a top-level JSON array of beatmapsets in
+        /// osu!'s API shape; an empty query returns the mirror's default listing. <paramref name="mode"/>
+        /// 0 = osu!standard. Parameter names are per-mirror and a wrong one is silently ignored rather than
+        /// rejected, so each URL must be spelled that mirror's way (docs/osu-api.md §7): osu.direct and catboy
+        /// take <c>query/mode/limit</c>, nerinyan <c>q/m/ps</c>.
+        /// <para>
+        /// <b>nerinyan is deliberately absent.</b> As of 2026-07-16 its search ignores the query entirely and
+        /// answers <c>200</c> with the same static listing for every term (no parameter spelling changes it).
+        /// That is the one failure <see cref="Search"/> cannot see through: it accepts the first mirror whose
+        /// body <i>parses</i>, and well-formed-but-wrong parses fine, so including nerinyan at any position
+        /// would serve plausible results for a search nobody ran. An honest "search failed" beats silently
+        /// wrong maps. Re-add it only once <c>?q=</c> demonstrably filters again.
+        /// </para></summary>
+        /// <summary><paramref name="status"/> is the mirror's beatmap-state int (ranked=1, qualified=3,
+        /// loved=4, pending=0, wip=-1, graveyard=-2), omitted when <c>null</c> to get the default "has
+        /// leaderboard" listing. <paramref name="sort"/> is a mirror-sortable <c>attr:asc|desc</c> string
+        /// (verified attrs in <c>docs/osu-api.md</c> §7), omitted when null/empty. Both were confirmed
+        /// honoured by osu.direct on 2026-07-16; catboy takes the same names (TLS-unreachable regardless).</summary>
+        public static string[] SearchUrls(string query, int mode, int? status = null, string sort = null)
         {
             string q = UnityWebRequest.EscapeURL(query ?? "");
+            string extra = (status.HasValue ? $"&status={status.Value}" : "")
+                         + (string.IsNullOrEmpty(sort) ? "" : $"&sort={UnityWebRequest.EscapeURL(sort)}");
             return new[]
             {
-                $"https://api.nerinyan.moe/search?q={q}&m={mode}&ps=50",
-                $"https://catboy.best/api/v2/search?query={q}&mode={mode}&limit=50",
+                $"https://osu.direct/api/v2/search?query={q}&mode={mode}&limit=50{extra}",
+                $"https://catboy.best/api/v2/search?query={q}&mode={mode}&limit=50{extra}",
             };
         }
 
         /// <summary>Runs the mirrors in order, returning the first that parses. <paramref name="onDone"/> gets
         /// <c>null</c> only if every mirror failed/was unreachable.</summary>
         public static IEnumerator Search(string query, int mode, Action<List<OnlineBeatmapset>> onDone)
+            => Search(query, mode, null, null, onDone);
+
+        /// <inheritdoc cref="SearchUrls(string,int,int?,string)"/>
+        public static IEnumerator Search(string query, int mode, int? status, string sort,
+            Action<List<OnlineBeatmapset>> onDone)
         {
-            foreach (string url in SearchUrls(query, mode))
+            foreach (string url in SearchUrls(query, mode, status, sort))
             {
                 List<OnlineBeatmapset> parsed = null;
                 yield return SearchOne(url, r => parsed = r);
@@ -110,7 +163,10 @@ namespace OsuUnity.Gameplay
         {
             using var req = UnityWebRequest.Get(url);
             req.SetRequestHeader("Accept", "application/json");
+            ApiLog.Begin("search", url);
+            var sw = Stopwatch.StartNew();
             yield return req.SendWebRequest();
+            ApiLog.End("search", req, sw);
 
             if (req.result != UnityWebRequest.Result.Success)
             {
@@ -119,7 +175,13 @@ namespace OsuUnity.Gameplay
                 yield break;
             }
 
-            onDone(Parse(req.downloadHandler.text));
+            var results = Parse(req.downloadHandler.text);
+            // A mirror can answer 200 with a shape we can't read, and Search then silently falls through to
+            // the next one — worth seeing, since the request itself looked fine.
+            ApiLog.Note("search", results == null
+                ? $"unparseable response, trying next mirror  {url}"
+                : $"{results.Count} sets  {url}");
+            onDone(results);
         }
 
         // JsonUtility can't parse a top-level array, so wrap the raw response in an object. Returns null on any

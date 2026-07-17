@@ -5,10 +5,11 @@ namespace OsuUnity.Gameplay
 {
     /// <summary>
     /// osu!'s "background dim": a semi-transparent black quad parented to the camera, placed beyond the
-    /// gameplay chunk but in front of the video backdrop / skybox. Because it sits farther than the hit
-    /// objects and the cursor, the transparent draw order (back-to-front) paints it first and gameplay
-    /// over it — so the video, skybox and any future far background scene darken while gameplay stays at
-    /// full brightness. Alpha is driven live from <see cref="GameSettings.BackgroundDim"/>.
+    /// gameplay chunk but in front of the video backdrop / skybox, so the video, skybox and any future far
+    /// background scene darken while gameplay stays at full brightness. Being the farthest thing in the
+    /// transparent queue is not what orders it — any sibling with an explicit sorting order would jump it —
+    /// so it claims the floor of that queue explicitly (<see cref="Util.RenderOrder.BackgroundDim"/>).
+    /// Alpha is driven live from <see cref="GameSettings.BackgroundDim"/>.
     /// </summary>
     public sealed class BackgroundDim : MonoBehaviour
     {
@@ -39,6 +40,7 @@ namespace OsuUnity.Gameplay
             _mat = new Material(shader);
             _renderer = go.GetComponent<MeshRenderer>();
             _renderer.sharedMaterial = _mat;
+            _renderer.sortingOrder = Util.RenderOrder.BackgroundDim;
 
             SetDim(GameSettings.BackgroundDim);
             Resize();

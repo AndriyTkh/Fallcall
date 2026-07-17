@@ -18,6 +18,10 @@ namespace OsuUnity.Gameplay
         /// <summary>Degrees of rotation per unit of mouse movement.</summary>
         public float Sensitivity = 3f;
 
+        /// <summary>Autoplay: ignore the mouse and let <see cref="ViewModeController.AimAt"/> drive the
+        /// camera rotation toward the notes instead.</summary>
+        public bool Auto;
+
         /// <summary>
         /// Free horizontal look (STRUCTURE §2 baseline): yaw is unbounded so the player can turn all the
         /// way around the sphere. Off = yaw clamps to the chunk's horizontal half-extent (+margin).
@@ -65,6 +69,8 @@ namespace OsuUnity.Gameplay
 
         private void Update()
         {
+            if (Auto) return;   // autoplay drives rotation via ViewModeController.AimAt
+
             _yaw += Input.GetAxisRaw("Mouse X") * Sensitivity;
             _pitch -= Input.GetAxisRaw("Mouse Y") * Sensitivity; // screen-space: up is negative pitch
 

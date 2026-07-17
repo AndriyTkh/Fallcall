@@ -73,7 +73,7 @@ namespace OsuUnity.UI
 
         private void Build()
         {
-            var canvas = UiKit.CreateCanvas("MainScreen", sortOrder: 100);
+            var canvas = UiKit.CreateCanvas("MainScreen", Util.RenderOrder.CanvasMainScreen);
             _root = canvas.gameObject;
 
             // Ambient backdrop (dimmed base colour; a beatmap image can layer in later — §2.4).
@@ -183,7 +183,7 @@ namespace OsuUnity.UI
 
         private void Update()
         {
-            if (!IsVisible || UiInput.Typing) return;
+            if (!IsVisible || UiInput.Typing || UiInput.Consumed) return;
 
             if (_hasBeatmaps && (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter)))
                 Navigate?.Invoke(MenuRoute.Play);

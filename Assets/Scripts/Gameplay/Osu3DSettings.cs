@@ -50,6 +50,10 @@ namespace OsuUnity.Gameplay
         [Range(0.3f, 3f)]
         public float FollowPointScale = 1f;
 
+        [Tooltip("Always use the built-in arrow for follow points, ignoring any skin's followpoint art " +
+                 "(applied on restart).")]
+        public bool DefaultFollowPoint = false;
+
         [Header("HUD")]
         [Tooltip("Skinned HUD size multiplier — scales the score/combo/accuracy fonts and health bar " +
                  "(applied live).")]

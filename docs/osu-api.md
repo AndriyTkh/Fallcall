@@ -16,7 +16,7 @@
 
 | Need | Source | Auth | Bytes |
 | --- | --- | --- | --- |
-| Search + metadata | mirrors (nerinyan → catboy) | none | ~KB (JSON) |
+| Search + metadata | mirror (osu.direct; see §7 — mirrors must do TLS 1.2) | none | ~KB (JSON) |
 | Search + metadata (optional upgrade) | official API v2 `beatmapsets/search` | client_credentials | ~KB (JSON) |
 | Preview audio | `b.ppy.sh/preview/{setId}.mp3` | **none** | ~100 KB |
 | Cover art | `assets.ppy.sh/beatmaps/{setId}/covers/{variant}.jpg` | **none** | ~KB |
@@ -214,15 +214,26 @@ wall you'd actually hit.
 ### Mirrors: per-IP
 
 Downloads go **direct from each player's machine to the mirror** — no shared credential, so no
-shared bucket. catboy exposes it:
+shared bucket. Both mirrors we use expose the budget, and **they differ by 10×**:
 
 ```
+osu.direct (the one we actually use — §7):
+Ratelimit-Limit: 120
+Ratelimit-Remaining: 119
+Ratelimit-Reset: 60                          → 120/min per IP
+
+catboy (TLS-unreachable from Unity 2022, §7):
 X-Ratelimit-Limit: 1200
-X-Ratelimit-Remaining: 1199 → 1198 → 1197   (decrements per-IP only)
-X-Ratelimit-Reset: <~60 s window>
+X-Ratelimit-Remaining: 1199 → 1198 → 1197    (decrements per-IP only)
+X-Ratelimit-Reset: <~60 s window>            → 1200/min per IP
 ```
 
-**1200/min per IP.** Nerinyan is behind Cloudflare and exposes no limit headers.
+**Budget in force today: 120/min per IP** — catboy's roomier 1200 is not ours to spend while Unity
+can't reach it. Two requests a second, shared between search and `.osz` downloads, so the search
+debounce (`MapBrowserSearch.debounce`, 0.45 s) is doing real work rather than just smoothing the
+UI: it is what keeps a fast typist under the ceiling. Cover/preview art does **not** count against
+this — it comes from ppy's CDN (§1), not the mirror. Nerinyan is behind Cloudflare and exposes no
+limit headers.
 
 ### Where app-wide risk *does* live
 
@@ -238,7 +249,7 @@ Neither has an app-wide *throttle*. Both have app-wide *enforcement*:
 
 **Good-citizen rules for U6:** send an honest identifying User-Agent (so mirror ops can *contact*
 us instead of just banning), cache `.osu` + previews on disk, never re-download an owned set,
-honour `429`/`Retry-After`, keep the nerinyan → catboy fallback.
+honour `429`/`Retry-After`, keep the osu.direct → catboy download fallback.
 
 ---
 
@@ -248,16 +259,88 @@ Both are unauthenticated and return **osu!-API-v2-shaped** beatmapset JSON (same
 which is why a mirror → official swap would be near drop-in. Already wired in
 `BeatmapDownloader.cs`.
 
-| Mirror | Search | Download |
-| --- | --- | --- |
-| nerinyan | `api.nerinyan.moe/search?q=&m=&ps=&p=` | `api.nerinyan.moe/d/{setId}` |
-| catboy | `catboy.best/api/v2/search?query=&mode=&limit=` | `catboy.best/d/{setId}` (`{setId}n` = no video) |
+| Mirror | TLS 1.2 | Search | Download |
+| --- | --- | --- | --- |
+| **osu.direct** | ✅ | `osu.direct/api/v2/search?query=&mode=&limit=` | `osu.direct/api/d/{setId}` |
+| catboy | ❌ **1.3-only** | `catboy.best/api/v2/search?query=&mode=&limit=` | `catboy.best/d/{setId}` (`{setId}n` = no video) |
+| nerinyan | ✅ | ~~`api.nerinyan.moe/search?q=&m=&ps=&p=`~~ dead | ~~`api.nerinyan.moe/d/{setId}`~~ 404s |
 
-`.osz` verified: catboy served a 13.4 MB set in 1.3 s, `Content-Type: application/x-osu-beatmap-archive`.
+`.osz` verified: osu.direct served a 10.8 MB set over TLS 1.2; catboy served 13.4 MB in 1.3 s
+(from curl — **not** reachable from Unity, see below).
 
-**Open:** whether mirror search matches the official filter set (star range / genre / status /
-language). Unverified — this is the single question that decides whether U6 ever needs
-credentials.
+**Parameter names are per-mirror and a wrong one is silently ignored** — the mirror answers `200`
+with its default listing instead of an error, which reads as "search works, returns junk".
+osu.direct and catboy take `query/mode/limit`; nerinyan takes `q/m/ps`.
+
+### ⚠ Unity 2022 caps at TLS 1.2 — this decides which mirrors exist
+
+UnityWebRequest's TLS stack on Unity 2022 negotiates **TLS 1.2 at best**. A TLS-1.3-only host is
+therefore **permanently unreachable from the game**, however healthy it looks from curl or a
+browser. The failure is fast and generic, so it mimics a transient network blip:
+
+```
+× search  0  0 B  127 ms  https://catboy.best/api/v2/search?query=&mode=0&limit=50
+      ConnectionError: Unable to complete SSL connection
+```
+
+**catboy.best is TLS-1.3-only** — it answers a TLS 1.2 ClientHello with alert 70
+(`protocol_version`). It is the best mirror by API behaviour and the one we cannot use. It stays
+last in both lists purely so the code is already correct if the ceiling lifts (Unity 6 / newer
+`unitytls`).
+
+**Vet every candidate mirror before adding it.** Must reach `Verify return code: 0`:
+
+```
+openssl s_client -connect HOST:443 -servername HOST -tls1_2
+```
+
+Probed 2026-07-16: `osu.direct` ✅, `beatconnect.io` ✅, `mino.pw` ✅, `catboy.best` ❌ (1.3-only),
+`api.chimu.moe` ❌ (dead), `api.osu.direct` ❌ (dead — the API lives on the apex, not this subdomain).
+
+### nerinyan search is dead too (2026-07-16)
+
+`api.nerinyan.moe/search` ignores the query and returns **the same static listing for every term**
+(`?q=Ado`, `?q=Camellia` and `?q=` are byte-identical; `q`/`query`/`+p`/`+option` all behave the
+same, so it is not a spelling problem). Its `/d/{setId}` 404s for every id tried, while catboy
+serves the same ids fine — the mirror looks dead, not misconfigured.
+
+Consequence for `BeatmapDownloader.Search`: it accepts **the first mirror whose body parses**, and
+nerinyan's junk parses perfectly, so the next mirror was never reached and every search returned
+the same 50 sets. nerinyan is therefore **removed from `SearchUrls` entirely** rather than demoted
+— at any position it can only turn an honest failure into silently wrong results. Re-add only once
+`?q=` demonstrably filters again. It is out of `MirrorUrls` too: 404-for-every-id buys nothing but
+a wasted round-trip now that osu.direct leads.
+
+Between the two, the browser was broken end-to-end and not just in search: the only mirror Unity
+could *reach* (nerinyan) was serving junk and 404s, and the only mirror *behaving* (catboy) was
+TLS-unreachable. Downloads had no working path either until osu.direct was added.
+
+Note this is the second time this exact shape bit us: catboy previously ignored a nerinyan-spelled
+`q` and answered with its default listing (`docs/U6-progress.md`). A `200` from a mirror is not
+evidence the query was honoured.
+
+### Mirror filter/sort support — resolved (2026-07-16, osu.direct)
+
+The §7 open question is **answered: osu.direct honours status + sort server-side**, so the
+category and ordering rows need no credentials. Probed against live `?…` params:
+
+- **`status=<int>`** filters by beatmap state — confirmed distinct result sets: `-2`=graveyard,
+  `-1`=wip, `0`=pending, `1`=ranked, `2`=approved, `3`=qualified, `4`=loved. Must be a number
+  (`status=any` → `403`); **omit it for the "Has Leaderboard" default listing**.
+- **`sort=<attr>:asc|desc`** — a wrong attr `500`s with the whole allowlist:
+  `artist, beatmaps.bpm, beatmaps.difficulty_rating, beatmaps.hit_length, beatmaps.passcount,
+  beatmaps.playcount, beatmaps.total_length, bpm, favourite_count, id, last_updated, play_count,
+  ranked_date, submitted_date, title`. The listing's Title/Artist/Difficulty/Ranked/Plays/
+  Favourites map to `title / artist / beatmaps.difficulty_rating / ranked_date / play_count /
+  favourite_count`. **osu!'s "Rating" has no backing attr — dropped from the row.**
+- **`e=` / `g=` / `l=` (extra / genre / language) are ignored** — the mirror answers its default
+  listing (the §7 silent-`200` trap). But every result carries `video`, `storyboard`, `genre_id`,
+  `language_id`, `rating`, `play_count`, `favourite_count`, `status` as fields, so **"Has Video" /
+  "Has Storyboard" are filtered client-side** on the returned page instead.
+- **Favourites / My Maps stay impossible credential-free** (login-scoped, §4) — omitted from the UI.
+
+Wired in `BeatmapDownloader.SearchUrls` (status + sort params) and the `MapBrowser` filter rows
+(`BrowseQuery` maps the words → params; `BrowseFilters` does the client-side Extra gate).
 
 ---
 

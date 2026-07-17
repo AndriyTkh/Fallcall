@@ -107,21 +107,26 @@ pause the way clock-driven animation does; convert if pause-correctness matters.
 **What it is.** Let Unity merge many renderers into few draw calls. Four levers apply here.
 
 ### 3a. Sorting-order fragmentation — the main batch-killer
-Every drawable sets `sortingOrder = DepthOrder * 10 + offset`
+Every drawable sets `sortingOrder = SortingBase + offset`
 ([`HitCircleObject`](../Assets/Scripts/Visual/HitCircleObject.cs),
 [`SliderObject`](../Assets/Scripts/Visual/SliderObject.cs),
 [`SpinnerObject`](../Assets/Scripts/Visual/SpinnerObject.cs), and
 [`DrawableHitObject.AddSprite`](../Assets/Scripts/Visual/DrawableHitObject.cs)). Since
-`DepthOrder = HitObjects.Count - index` (set in `GameManager.Spawn`), **every object gets a
-unique sorting band**, so no two objects' sprites can batch even when they share a texture and
-material. This is the first thing the Frame Debugger will flag.
+`SortingBase = RenderOrder.HitObject(index, count)` = `(count - index) * HitObjectStride`
+(set in `GameManager.Spawn`), **every object gets a unique sorting band**, so no two objects'
+sprites can batch even when they share a texture and material. This is the first thing the
+Frame Debugger will flag.
 
 **Concrete change.** Collapse the sort space. Objects only need correct ordering *relative to
 their few on-screen neighbours*, not a globally unique band:
 - Give each drawable a small fixed **internal** offset table (body=0, overlay=1, approach=3…)
-  and derive the **base** from a coarse bucket (e.g. `depth % N`) so far-apart objects reuse
-  bands and can batch. On-screen objects at the same instant are few (bounded by preempt), so
-  a handful of buckets keeps visual layering correct while letting most sprites share an order.
+  and derive the **base** from a coarse bucket (e.g. `(count - index) % N`) so far-apart objects
+  reuse bands and can batch. On-screen objects at the same instant are few (bounded by preempt),
+  so a handful of buckets keeps visual layering correct while letting most sprites share an order.
+- Do it in [`RenderOrder.HitObject`](../Assets/Scripts/Util/RenderOrder.cs), which is the only
+  place the band is computed — the drawables just consume `SortingBase`. Note the bands above it
+  (`CursorTrail`/`Cursor`/`Judgement`) are derived from `BeginSession`'s object count, so they
+  follow a collapsed band down on their own.
 
 ### 3b. SRP batcher / dynamic batching
 Built-in pipeline (per `CLAUDE.md`) → the **SRP Batcher** is not available; rely on **dynamic

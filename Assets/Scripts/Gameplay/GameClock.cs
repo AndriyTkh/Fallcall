@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 // INDEX: Audio-synced clock (dspTime) reporting song time in ms, with lead-in and pause support.
@@ -74,6 +75,38 @@ namespace OsuUnity.Gameplay
                 _source.Stop();
                 _source.PlayScheduled(_dspSongStart);
                 _scheduled = true;
+            }
+        }
+
+        /// <summary>Jump to a song time (ms), re-anchoring the dsp clock and the audio so both stay in
+        /// sync. Negative targets land back in the lead-in (audio is re-scheduled); targets past the clip
+        /// are clamped inside it, since running off the end would report <see cref="Finished"/>.</summary>
+        public void Seek(double songTimeMs)
+        {
+            TimeMs = songTimeMs;
+            _pausedTime = songTimeMs;
+            _dspSongStart = AudioSettings.dspTime - songTimeMs / 1000.0;
+            Finished = false;
+
+            if (_source == null || _source.clip == null)
+            {
+                _audioStarted = songTimeMs >= 0;
+                return;
+            }
+
+            _source.Stop();
+            _scheduled = true;
+            _audioStarted = songTimeMs >= 0;
+
+            if (_audioStarted)
+            {
+                double clipMs = _source.clip.length * 1000.0;
+                _source.time = (float)(Math.Clamp(songTimeMs, 0.0, Math.Max(0.0, clipMs - 50.0)) / 1000.0);
+                if (!_paused) _source.Play();
+            }
+            else if (!_paused)
+            {
+                _source.PlayScheduled(_dspSongStart);
             }
         }
 

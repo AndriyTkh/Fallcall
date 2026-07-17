@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using OsuUnity.Beatmaps;
 using OsuUnity.Skinning;
+using OsuUnity.UI;
 using OsuUnity.Visual;
 using UnityEngine;
 
@@ -25,11 +26,12 @@ namespace OsuUnity.Gameplay
         private CursorController _cursor;
         private HitSoundPlayer _hitSounds;
         private VideoPlayback _video;
-        private BackgroundDim _dim;
         private FollowPoints _followPoints;
         private AudioSource _music;
         private Camera _cam;
         private ViewModeController _viewMode;
+        private BreakSkip _breaks;
+        private AutoPilot _auto;   // non-null while autoplay drives the cursor (GameSettings.Autoplay)
 
         private readonly List<DrawableHitObject> _active = new List<DrawableHitObject>();
         private int _spawnIndex;
@@ -37,12 +39,9 @@ namespace OsuUnity.Gameplay
         private bool _finished;
         private bool _started;
         private bool _paused;
-        private GUIStyle _style, _bigStyle, _centerStyle, _menuLabel;
+        private GUIStyle _style, _bigStyle, _centerStyle;
         private Texture2D _combo67Tex;         // shown in place of the combo counter at exactly 67 combo
         private bool _combo67Loaded;           // load attempted (success or fail) — don't retry every frame
-        private static readonly string[] _modeNames = { "Sphere", "2D Ortho", "Falling" };
-        private Vector2 _pauseScroll;          // pause-menu scroll offset
-        private float _pauseContentH = 1200f;  // measured content height (last frame) for the scroll view
 
         public void StartGame(Beatmap map, AudioClip music, Texture2D background, Camera cam)
         {
@@ -51,15 +50,20 @@ namespace OsuUnity.Gameplay
 
             GameSettings.Load(Osu3DSettings.Find());
 
+            // Built before BuildScene: the hit-sound player subscribes to OnComboBreak in there.
+            _score = new ScoreProcessor();
+            _score.Configure(map.Difficulty.HPDrainRate);
+
+            // Reserve the hit-object sorting band for this map before anything that sits above it is
+            // built — the cursor reads its order in Init, and the band's height scales with the map.
+            Util.RenderOrder.BeginSession(map.HitObjects.Count);
+
             BuildScene(background);
 
             _music = gameObject.AddComponent<AudioSource>();
             _music.playOnAwake = false;
             _music.clip = music;
             _music.volume = GameSettings.MusicVolume;
-
-            _score = new ScoreProcessor();
-            _score.Configure(map.Difficulty.HPDrainRate);
 
             _ctx = new GameContext
             {
@@ -73,9 +77,19 @@ namespace OsuUnity.Gameplay
             _ctx.Configure(map);
             _followPoints?.Init(_ctx); // guide-arrow line between objects (needs the configured context)
 
+            // Autoplay: hand the cursor over to the AutoPilot so the map plays itself (testing / preview).
+            _auto = GameSettings.Autoplay ? new AutoPilot(map) : null;
+            _cursor.Auto = _auto != null;
+
             _clock = new GameClock();
             _clock.Prepare(_music, map.General.AudioLeadIn);
             _clock.Start();
+
+            // Intro + breaks: one overlay for every click-free gap (needs the clock's lead-in so the intro
+            // overlay is up before song time 0).
+            _breaks = new BreakSkip();
+            _breaks.Build(map, _clock.LeadInMs);
+            _breaks.OnSkip += SkipTo;
 
             _running = true;
             _started = true;
@@ -88,7 +102,7 @@ namespace OsuUnity.Gameplay
             _playfield = pfGo.AddComponent<Playfield>();
 
             // Tuning comes from GameSettings (seeded from an Osu3DSettings in the scene or built-in
-            // defaults, then overridden by saved values and the pause-menu sliders).
+            // defaults, then overridden by saved values and the settings overlay).
             _playfield.PixelScale = GameSettings.PixelScale;
             _playfield.Curved = GameSettings.Curved;
             _playfield.ProjectionDistance = GameSettings.ProjectionDistance;
@@ -119,6 +133,8 @@ namespace OsuUnity.Gameplay
             _hitSounds = hsGo.AddComponent<HitSoundPlayer>();
             _hitSounds.Volume = GameSettings.HitSoundVolume;
             _hitSounds.Init(_map);
+            // _score is rebuilt with the session, so this subscription never outlives its player.
+            _score.OnComboBreak += _hitSounds.PlayComboBreak;
 
             // Background video (osu! "Video" event), if the map has one and it's enabled. Backdrop quad
             // sits well beyond the gameplay chunk radius but inside the far clip plane; the camera's FOV
@@ -139,8 +155,7 @@ namespace OsuUnity.Gameplay
             // so it darkens everything behind the hit objects (osu! "background dim"). Always present; alpha
             // 0 disables the draw. Distance stays under videoFar so it is never occluded by the video quad.
             var dimGo = new GameObject("BackgroundDim");
-            _dim = dimGo.AddComponent<BackgroundDim>();
-            _dim.Init(_cam, videoFar * 0.95f);
+            dimGo.AddComponent<BackgroundDim>().Init(_cam, videoFar * 0.95f);
 
             // Follow points (guide arrows between consecutive in-combo objects). Child of the playfield so
             // it rides along with any view-mode transform; Init runs later once the context is configured.
@@ -156,6 +171,18 @@ namespace OsuUnity.Gameplay
         {
             if (!_started) return;
 
+            // The settings overlay opens over gameplay (Ctrl+O, from anywhere). While it is up it owns the
+            // keyboard: pause the session under it and read no keys at all, or every letter typed into its
+            // search field (A/S/D = hit, R = restart, Space = skip) would also play the map.
+            if (SettingsOverlay.IsOpen)
+            {
+                if (!_paused && !_finished) TogglePause();
+                return;
+            }
+            // Its Esc-to-close claims the press, but script execution order between the two Updates is
+            // undefined — without this we'd read that same Esc and pause the map it just uncovered.
+            if (UiInput.Consumed) return;
+
             if (Input.GetKeyDown(KeyCode.Escape))
             {
                 if (_finished) { ExitToMenu(); return; }
@@ -168,9 +195,20 @@ namespace OsuUnity.Gameplay
 
             _clock.Update();
             double time = _clock.TimeMs;
+            _breaks?.Tick(time);   // may seek via SkipTo, so re-read the clock before spawning
+            time = _clock.TimeMs;
             _video?.Tick(time);
             _viewMode?.TickView(time);   // Ortho2D dynamic click-group zoom (no-op in other modes)
             _followPoints?.Tick(time);   // fade/slide the guide arrows toward upcoming objects
+
+            // Autoplay: drive the cursor (and, in Sphere, aim the camera) before the drawables tick, so they
+            // read fresh cursor state this same frame.
+            if (_auto != null)
+            {
+                _auto.Tick(time, out Vector2 autoOsu, out bool autoHeld, out bool autoPress);
+                _cursor.SetAuto(autoOsu, autoHeld, autoPress);
+                _viewMode?.AimAt(autoOsu);
+            }
 
             // Spawn objects entering their preempt window.
             while (_spawnIndex < _map.HitObjects.Count &&
@@ -214,6 +252,25 @@ namespace OsuUnity.Gameplay
             }
         }
 
+        // Jump the session forward to <paramref name="target"/> (BreakSkip's skip button/key). Only ever
+        // called with a time inside a click-free gap, so nothing judgeable is skipped over — but the spawn
+        // cursor still has to step past objects the jump lands after, or they'd spawn late en masse.
+        private void SkipTo(double target)
+        {
+            if (!_running || _paused || _finished || target <= _clock.TimeMs) return;
+
+            for (int i = _active.Count - 1; i >= 0; i--)
+            {
+                Destroy(_active[i].gameObject);
+                _active.RemoveAt(i);
+            }
+            while (_spawnIndex < _map.HitObjects.Count && _map.HitObjects[_spawnIndex].EndTime < target)
+                _spawnIndex++;
+
+            _clock.Seek(target);
+            _video?.Tick(target);
+        }
+
         private int LastObjectEnd()
         {
             if (_map.HitObjects.Count == 0) return 0;
@@ -222,7 +279,7 @@ namespace OsuUnity.Gameplay
 
         private void Spawn(HitObject ho, int index)
         {
-            int depth = _map.HitObjects.Count - index; // earlier objects render on top
+            int order = Util.RenderOrder.HitObject(index, _map.HitObjects.Count);
             DrawableHitObject d;
 
             var go = new GameObject(ho.GetType().Name);
@@ -232,17 +289,17 @@ namespace OsuUnity.Gameplay
             {
                 case Slider _:
                     var s = go.AddComponent<SliderObject>();
-                    s.DepthOrder = depth;
+                    s.SortingBase = order;
                     d = s;
                     break;
                 case Spinner _:
                     var sp = go.AddComponent<SpinnerObject>();
-                    sp.DepthOrder = depth;
+                    sp.SortingBase = order;
                     d = sp;
                     break;
                 default:
                     var c = go.AddComponent<HitCircleObject>();
-                    c.DepthOrder = depth;
+                    c.SortingBase = order;
                     d = c;
                     break;
             }
@@ -253,14 +310,14 @@ namespace OsuUnity.Gameplay
 
         private void ShowJudgement(Judgement j, Vector3 worldPos)
         {
-            FloatingText.Spawn(j, worldPos, _ctx.RadiusWorld * 0.03f, 20000, _cam);
+            FloatingText.Spawn(j, worldPos, _ctx.RadiusWorld * 0.03f, Util.RenderOrder.Judgement, _cam);
         }
 
         private void TogglePause()
         {
             _paused = !_paused;
-            if (_paused) { _clock.Pause(); SetLook(false); }
-            else { GameSettings.Save(); _clock.Resume(); SetLook(true); }
+            if (_paused) { _clock.Pause(); SetLook(false); PauseMenu.Show(TogglePause, Restart, ExitToMenu); }
+            else { GameSettings.Save(); _clock.Resume(); SetLook(true); PauseMenu.Hide(); }
             _video?.SetPaused(_paused);
         }
 
@@ -280,7 +337,7 @@ namespace OsuUnity.Gameplay
 
         private void Restart()
         {
-            GameSettings.Save(); // persist any pause-menu tuning before rebuilding with it
+            GameSettings.Save(); // persist any settings-overlay tuning before rebuilding with it
             var map = _map;
             var clip = _music != null ? _music.clip : null;
             Texture2D bg = null;
@@ -293,6 +350,7 @@ namespace OsuUnity.Gameplay
 
         private void Cleanup()
         {
+            PauseMenu.Hide();   // persists across sessions, so it never tears down with us — just close it
             foreach (var d in _active) if (d != null) Destroy(d.gameObject);
             _active.Clear();
             _running = false;
@@ -300,6 +358,8 @@ namespace OsuUnity.Gameplay
             _finished = false;
             _paused = false;
             _spawnIndex = 0;
+            _breaks = null;   // rebuilt per session; its OnSkip closes over this manager
+            _auto = null;     // rebuilt per session from GameSettings.Autoplay
 
             DestroyIfExists("Playfield");
             DestroyIfExists("Cursor");
@@ -307,7 +367,6 @@ namespace OsuUnity.Gameplay
             DestroyIfExists("VideoPlayback");
             _video = null;
             DestroyIfExists("BackgroundDim");
-            _dim = null;
             DestroyIfExists("FollowPoints");
             _followPoints = null;
             if (_music != null) { _music.Stop(); Destroy(_music); }
@@ -342,8 +401,6 @@ namespace OsuUnity.Gameplay
             _style.normal.textColor = Color.white;
             _bigStyle = new GUIStyle(_style) { fontSize = 40 };
             _centerStyle = new GUIStyle(_style) { fontSize = 30, alignment = TextAnchor.MiddleCenter };
-            _menuLabel = new GUIStyle(GUI.skin.label) { fontSize = 16 };
-            _menuLabel.normal.textColor = Color.white;
         }
 
         // Lazily loads Assets/Images/images.png (the "67" combo art). Returns null if the file is missing.
@@ -367,13 +424,18 @@ namespace OsuUnity.Gameplay
             if (!_started || _ctx == null) return;
             EnsureStyles();
 
-            DrawHud();
+            // IMGUI paints after every canvas has composited, so the HUD cannot be put *under* the pause
+            // menu or the settings overlay — it can only stand down while one of them is up. The overlay
+            // is checked separately: it also opens over the results screen, which never pauses.
+            if (_paused || SettingsOverlay.IsOpen) return;
 
-            GUI.Label(new Rect(20, Screen.height - 52, 600, 24),
-                "[A]/[S]/[D] or click to hit   •   [R] restart   •   [Esc] pause", _style);
+            DrawHud();
+            if (!_finished) _breaks?.Draw(_clock.TimeMs);
+
+            GUI.Label(new Rect(20, Screen.height - 52, 700, 24),
+                "[A]/[S]/[D] or click to hit   •   [Space] skip   •   [R] restart   •   [Esc] pause   •   [Ctrl+O] settings", _style);
 
             if (_finished) DrawResults();
-            else if (_paused) DrawPauseMenu();
         }
 
         // Draws score / accuracy / combo / health. Uses the skin's dedicated HUD fonts + scorebar when
@@ -437,132 +499,6 @@ namespace OsuUnity.Gameplay
             float x = leftAnchor ? anchorX : anchorX - w67;
             GUI.DrawTexture(new Rect(x, y, w67, height), tex, ScaleMode.ScaleToFit);
             return true;
-        }
-
-        private void DrawPauseMenu()
-        {
-            // Dim the playfield.
-            GUI.color = new Color(0, 0, 0, 0.75f);
-            GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), Texture2D.whiteTexture);
-            GUI.color = Color.white;
-
-            // Fixed chrome heights; the middle content scrolls so the window never exceeds the screen.
-            const float headerH = 56f, footerH = 64f, pad = 8f;
-            float bw = 460;
-            float bh = Mathf.Min(headerH + _pauseContentH + footerH, Screen.height - 40f);
-            var r = new Rect((Screen.width - bw) / 2, (Screen.height - bh) / 2, bw, bh);
-            GUI.color = new Color(0, 0, 0, 0.85f);
-            GUI.DrawTexture(r, Texture2D.whiteTexture);
-            GUI.color = Color.white;
-
-            GUI.Label(new Rect(r.x, r.y + 16, bw, 40), "Paused", _centerStyle);
-
-            var look = _cam != null ? _cam.GetComponent<FirstPersonCamera>() : null;
-
-            // --- scrollable content ---
-            var viewport = new Rect(r.x + pad, r.y + headerH, bw - 2 * pad, bh - headerH - footerH);
-            // Reserve the scrollbar width so content never sits under it.
-            var content = new Rect(0, 0, viewport.width - 18f, _pauseContentH);
-            _pauseScroll = GUI.BeginScrollView(viewport, _pauseScroll, content);
-
-            float x = 24, w = content.width - 48, y = 6;
-
-            // --- audio + input ---
-            // fmt "0%" already scales by 100 for display, so displayMul stays 1 (else it double-scales).
-            GameSettings.MusicVolume = Slider("Music volume", GameSettings.MusicVolume, 0f, 1f, "0%", 1f, x, w, ref y);
-            GameSettings.HitSoundVolume = Slider("Hit sound volume", GameSettings.HitSoundVolume, 0f, 1f, "0%", 1f, x, w, ref y);
-            GameSettings.LookSensitivity = Slider("Look sensitivity", GameSettings.LookSensitivity, 0.5f, 10f, "0.0", 1f, x, w, ref y);
-
-            // Audio + sensitivity apply live.
-            if (_music != null) _music.volume = GameSettings.MusicVolume;
-            if (_hitSounds != null) _hitSounds.Volume = GameSettings.HitSoundVolume;
-            if (look != null) look.Sensitivity = GameSettings.LookSensitivity;
-
-            y += 8;
-            GUI.Label(new Rect(x, y, w, 22), "Visibility", _menuLabel); y += 26;
-            GameSettings.BackgroundDim = Slider("Background dim", GameSettings.BackgroundDim, 0f, 1f, "0%", 1f, x, w, ref y);
-            _dim?.SetDim(GameSettings.BackgroundDim); // applies live to video + skybox + far scene
-            GameSettings.ShowFollowPoints = GUI.Toggle(new Rect(x, y, w, 24), GameSettings.ShowFollowPoints, "  Follow points (restart)"); y += 30;
-            GameSettings.FollowPointScale = Slider("Follow point size", GameSettings.FollowPointScale, 0.3f, 3f, "0.00", 1f, x, w, ref y);
-            GameSettings.HudScale = Slider("HUD size", GameSettings.HudScale, 0.4f, 2.5f, "0.00", 1f, x, w, ref y);
-
-            y += 8;
-            GUI.Label(new Rect(x, y, w, 22), "View mode — live · also [Tab] to cycle", _menuLabel); y += 26;
-            int curMode = _viewMode != null ? (int)_viewMode.Mode : (int)GameSettings.StartMode;
-            int selMode = GUI.Toolbar(new Rect(x, y, w, 26), curMode, _modeNames);
-            if (selMode != curMode)
-            {
-                GameSettings.StartMode = (ViewMode)selMode;                 // remembered for the next session
-                GameSettings.Curved = selMode == (int)ViewMode.Sphere;      // keep the playfield seed consistent
-                if (_viewMode != null)
-                {
-                    _viewMode.SetMode((ViewMode)selMode);                   // apply immediately, mid-map
-                    _viewMode.SetPaused(true);                              // keep look off + mouse free for the menu
-                }
-            }
-            y += 30;
-
-            y += 8;
-            GUI.Label(new Rect(x, y, w, 22), "Playfield (applied on restart)", _menuLabel); y += 26;
-            GameSettings.PixelScale = Slider("Scale", GameSettings.PixelScale, 0.002f, 0.05f, "0.000", 1f, x, w, ref y);
-            GameSettings.ProjectionDistance = Slider("Radius", GameSettings.ProjectionDistance, 0.5f, 12f, "0.0", 1f, x, w, ref y);
-            GameSettings.ChunkHDegrees = Slider("Chunk H°", GameSettings.ChunkHDegrees, -300f, 300f, "0", 1f, x, w, ref y);
-            GameSettings.ChunkVDegrees = Slider("Chunk V°", GameSettings.ChunkVDegrees, 20f, 180f, "0", 1f, x, w, ref y);
-
-            y += 8;
-            GUI.Label(new Rect(x, y, w, 22), "Cursor (applied on restart)", _menuLabel); y += 26;
-            GameSettings.CursorSize = Slider("Cursor size", GameSettings.CursorSize, 0.5f, 3f, "0.00", 1f, x, w, ref y);
-            GameSettings.CursorHitboxOsu = Slider("Cursor hitbox (0 = faithful)", GameSettings.CursorHitboxOsu, 0f, 30f, "0", 1f, x, w, ref y);
-
-            y += 8;
-            GUI.Label(new Rect(x, y, w, 22), "Video (applied on restart)", _menuLabel); y += 26;
-            GameSettings.EnableVideo = GUI.Toggle(new Rect(x, y, w, 24), GameSettings.EnableVideo, "  Play background video"); y += 30;
-
-            y += 8;
-            GUI.Label(new Rect(x, y, w, 22), "2D zoom — Ortho mode / [Tab]", _menuLabel); y += 26;
-            GameSettings.OrthoZoom = GUI.Toggle(new Rect(x, y, w, 24), GameSettings.OrthoZoom, "  Dynamic click-group zoom (live)"); y += 30;
-            GameSettings.OrthoZoomSmooth = Slider("Camera smoothing (live)", GameSettings.OrthoZoomSmooth, 0.02f, 1f, "0.00", 1f, x, w, ref y);
-            GameSettings.OrthoZoomMargin = Slider("Zoom margin (live)", GameSettings.OrthoZoomMargin, 0f, 6f, "0.0", 1f, x, w, ref y);
-            GameSettings.OrthoOvershoot = Slider("Pan overshoot (live)", GameSettings.OrthoOvershoot, 0f, 0.6f, "0.00", 1f, x, w, ref y);
-            GameSettings.OrthoLookaheadMs = Slider("Lookahead (ms, restart)", GameSettings.OrthoLookaheadMs, 0f, 1500f, "0", 1f, x, w, ref y);
-            GameSettings.OrthoAggressiveness = Slider("Grouping aggressiveness (restart)", GameSettings.OrthoAggressiveness, 0f, 1f, "0%", 1f, x, w, ref y);
-            GameSettings.OrthoKiaiSmoothMul = Slider("Kiai snap (live)", GameSettings.OrthoKiaiSmoothMul, 0.1f, 1f, "0.00", 1f, x, w, ref y);
-            GameSettings.OrthoKiaiZoomMul = Slider("Kiai zoom (live)", GameSettings.OrthoKiaiZoomMul, 0.5f, 1f, "0.00", 1f, x, w, ref y);
-
-            y += 4;
-            if (GUI.Button(new Rect(x, y, w, 30), "Reset to defaults"))
-            {
-                GameSettings.Reset();
-                // Apply live ones immediately so the menu reflects the reset.
-                if (_music != null) _music.volume = GameSettings.MusicVolume;
-                if (_hitSounds != null) _hitSounds.Volume = GameSettings.HitSoundVolume;
-                if (look != null) look.Sensitivity = GameSettings.LookSensitivity;
-                _dim?.SetDim(GameSettings.BackgroundDim);
-            }
-            y += 38;
-
-            _pauseContentH = y;   // remember for next frame's scroll-view sizing
-            GUI.EndScrollView();
-
-            // --- buttons (fixed footer, below the scroll view) ---
-            float bx = r.x + pad + 16, bwn = bw - 2 * (pad + 16);
-            float by = r.y + bh - footerH + 14;
-            float third = (bwn - 16) / 3f;
-            if (GUI.Button(new Rect(bx, by, third, 36), "Resume")) TogglePause();
-            if (GUI.Button(new Rect(bx + third + 8, by, third, 36), "Restart")) Restart();
-            if (GUI.Button(new Rect(bx + 2 * (third + 8), by, third, 36), "Song Select")) ExitToMenu();
-        }
-
-        // Labeled horizontal slider; returns the new value. Advances y by one row.
-        private float Slider(string label, float value, float min, float max,
-                             string fmt, float displayMul, float x, float w, ref float y)
-        {
-            GUI.Label(new Rect(x, y, w - 70, 22), label, _menuLabel);
-            GUI.Label(new Rect(x + w - 70, y, 70, 22), (value * displayMul).ToString(fmt), _menuLabel);
-            y += 22;
-            value = GUI.HorizontalSlider(new Rect(x, y + 4, w, 18), value, min, max);
-            y += 30;
-            return value;
         }
 
         private void DrawResults()

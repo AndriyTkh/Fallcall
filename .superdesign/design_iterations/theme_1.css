@@ -1,0 +1,56 @@
+/* Fallcall — Song Select "The Datum"
+   Theme tokens. Overcast concrete. Colour arrives from content, never from brand. */
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root {
+  /* --- field ------------------------------------------------------------ */
+  --paper:      #d8dad9;   /* the vast; sky at rest */
+  --paper-2:    #cdd1d0;   /* far planes */
+  --paper-3:    #c2c7c6;
+  --plate:      #eff1f0;   /* every surface that carries text */
+  --plate-hi:   #f8f9f9;   /* hover */
+  --plate-sunk: #bfc4c3;   /* recess behind artwork */
+
+  /* --- ink -------------------------------------------------------------- */
+  --ink:    #13171a;
+  --ink-2:  #4b545a;
+  --ink-3:  #7b858b;
+  --ink-4:  #9aa3a8;
+  --rule:   #b2b7b6;
+  --hard:   #13171a;
+
+  /* --- accent ----------------------------------------------------------- */
+  /* Placeholder only. Player-settable. Nothing structural depends on hue. */
+  --accent: #4a7191;
+  /* Per-map, sampled from artwork, then CLAMPED to L 42-62% / S <= 38%
+     so a blinding-white cover can never produce a glowing spine and a black
+     void can never produce an invisible one. */
+  --map-accent: #5b7f96;
+
+  /* --- star luminance ramp (brightness, not hue; number always present) -- */
+  --star-1: #99a1a6;  /* 0-2   */
+  --star-2: #7b858b;  /* 2-4   */
+  --star-3: #5a646b;  /* 4-6   */
+  --star-4: #2d363c;  /* 6-8   */
+  --star-5: #13171a;  /* 8+    */
+
+  /* --- structure -------------------------------------------------------- */
+  --radius: 0px;
+  --hairline: 1px solid var(--rule);
+  --edge: 2px solid var(--hard);
+  --shadow-hard: 6px 6px 0 rgba(19, 23, 26, 0.10);
+  --shadow-hard-lg: 10px 10px 0 rgba(19, 23, 26, 0.12);
+
+  --rail-h: 58px;
+  --foot-h: 40px;
+  --row-h: 46px;
+  --gutter: 7vw;
+  --col-max: 1140px;
+
+  --font-sans: 'Space Grotesk', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  --t-slow: 420ms cubic-bezier(.2, 0, 0, 1);
+  --t-struct: 260ms cubic-bezier(.2, 0, 0, 1);
+}

@@ -17,14 +17,25 @@ namespace OsuUnity.Skinning
         public static Sprite SliderFollow => Unit(TextureFactory.SoftRing, "sliderfollowcircle");
         public static Sprite SliderBall => Unit(TextureFactory.Disc, "sliderb0", "sliderb");
         public static Sprite Cursor => Unit(TextureFactory.Disc, "cursor");
+        public static Sprite CursorTrail => Unit(TextureFactory.Disc, "cursortrail");
 
-        /// <summary>Arrow drawn along the guide line between consecutive objects (osu! "followpoint").</summary>
-        public static Sprite FollowPoint => Unit(TextureFactory.Arrow, "followpoint-0", "followpoint");
+        /// <summary>
+        /// Frames of the guide arrow ("followpoint"), which osu! animates along each connection. Unit-sized
+        /// (every frame spans exactly one world unit wide, native aspect preserved), so the on-screen width is
+        /// identical across skins no matter the source art's pixel dimensions — the caller just scales by the
+        /// desired size. Falls back to the single procedural arrow when the skin has no followpoint element.
+        /// A skin's frame 0 is often a blank fade-in frame, so callers must cycle rather than draw one frame.
+        /// Pass <paramref name="forceDefault"/> to skip the skin and always return the built-in arrow.
+        /// </summary>
+        public static List<Sprite> FollowPointFrames(bool forceDefault = false)
+        {
+            var frames = !forceDefault && Skin.Current != null ? Skin.Current.GetFrames("followpoint", glyph: false) : null;
+            return frames != null && frames.Count > 0 ? frames : new List<Sprite> { TextureFactory.Arrow };
+        }
 
         // Elements with no procedural equivalent: null means "skin absent, draw nothing extra".
         public static Sprite ReverseArrow => SkinOnly("reversearrow");
         public static Sprite SliderScorePoint => SkinOnly("sliderscorepoint");
-        public static Sprite CursorTrail => SkinOnly("cursortrail");
         public static Sprite SpinnerCircle => SkinOnly("spinner-circle");
         public static Sprite SpinnerApproach => SkinOnly("spinner-approachcircle");
         public static Sprite SpinnerBackground => SkinGlyph("spinner-background");

@@ -9,10 +9,14 @@ using UnityEngine;
 namespace OsuUnity.Gameplay
 {
     /// <summary>
-    /// Plays hit sounds. When a skin (or the beatmap folder) ships sample files we use those, resolving
-    /// the bank (normal/soft/drum), custom index and volume the way osu! does — from the object's
-    /// hitSample, the active timing point, then the beatmap default. Anything not provided by a sample
-    /// falls back to a short procedurally-generated click, so the game still sounds right with no assets.
+    /// Plays hit sounds and the combo-break sound. Samples resolve the way osu! does: the bank
+    /// (normal/soft/drum), custom index and volume come from the object's hitSample, then the active
+    /// timing point, then the beatmap default. The file itself is looked up beatmap folder → skin
+    /// folder → the bundled osu! default skin (Assets/Resources/DefaultSkin), and a custom index that
+    /// has no file falls back to index 1 before dropping to the default skin — same order as osu!.
+    ///
+    /// Because the default skin ships with the game, every sample name always resolves to a real
+    /// sample; there is no synthesised fallback.
     ///
     /// An empty sample file (0 bytes or a header-only WAV) is treated as osu! treats it: intentional
     /// silence, not a missing sample — so skins can mute individual sounds.
@@ -25,8 +29,8 @@ namespace OsuUnity.Gameplay
         private AudioSource _source;
         private Beatmap _map;
 
-        // Procedural fallbacks, keyed by sample type.
-        private AudioClip _normal, _whistle, _finish, _clap, _tick;
+        /// <summary>Bundled osu! default-skin samples, keyed "bank-type" (never a custom index).</summary>
+        private readonly Dictionary<string, AudioClip> _defaults = new Dictionary<string, AudioClip>();
 
         // Skin/beatmap samples keyed by "bank-type[index]" (e.g. "soft-hitnormal", "normal-hitclap3").
         private readonly Dictionary<string, AudioClip> _clips = new Dictionary<string, AudioClip>();
@@ -36,6 +40,9 @@ namespace OsuUnity.Gameplay
         private static readonly string[] Types = { "hitnormal", "hitwhistle", "hitfinish", "hitclap", "slidertick" };
         private static readonly string[] Exts = { ".wav", ".ogg", ".mp3" };
 
+        private const string ComboBreak = "combobreak";
+        private const string DefaultSkinPath = "DefaultSkin/";
+
         public void Init(Beatmap map)
         {
             _map = map;
@@ -44,12 +51,7 @@ namespace OsuUnity.Gameplay
             _source.playOnAwake = false;
             _source.spatialBlend = 0f;
 
-            _normal = MakeClick(880f, 0.045f, 0.0f);
-            _whistle = MakeClick(1500f, 0.08f, 0.0f);
-            _finish = MakeClick(330f, 0.12f, 0.0f);
-            _clap = MakeClick(1200f, 0.05f, 0.6f);
-            _tick = MakeClick(2000f, 0.03f, 0.0f);
-
+            LoadDefaultSkin();
             StartCoroutine(Preload());
         }
 
@@ -65,10 +67,10 @@ namespace OsuUnity.Gameplay
             string suffix = Suffix(customIndex, tp);
             float vol = ResolveVolume(volumeOverride, tp);
 
-            PlayComponent(normal, "hitnormal", suffix, vol, _normal);
-            if ((additions & HitSoundType.Whistle) != 0) PlayComponent(addition, "hitwhistle", suffix, vol * 0.85f, _whistle);
-            if ((additions & HitSoundType.Finish) != 0) PlayComponent(addition, "hitfinish", suffix, vol * 0.95f, _finish);
-            if ((additions & HitSoundType.Clap) != 0) PlayComponent(addition, "hitclap", suffix, vol * 0.85f, _clap);
+            PlayComponent(normal, "hitnormal", suffix, vol);
+            if ((additions & HitSoundType.Whistle) != 0) PlayComponent(addition, "hitwhistle", suffix, vol * 0.85f);
+            if ((additions & HitSoundType.Finish) != 0) PlayComponent(addition, "hitfinish", suffix, vol * 0.95f);
+            if ((additions & HitSoundType.Clap) != 0) PlayComponent(addition, "hitclap", suffix, vol * 0.85f);
         }
 
         /// <summary>Play a slider tick from the slider's normal bank.</summary>
@@ -78,17 +80,40 @@ namespace OsuUnity.Gameplay
             var tp = _map?.GetTimingPointAt(timeMs);
             SampleBank bank = ResolveBank(normalBank, tp);
             float vol = ResolveVolume(volumeOverride, tp) * 0.6f; // ticks sit under the hits
-            PlayComponent(bank, "slidertick", Suffix(customIndex, tp), vol, _tick);
+            PlayComponent(bank, "slidertick", Suffix(customIndex, tp), vol);
+        }
+
+        /// <summary>
+        /// Play the combo-break sound. Unlike hit sounds this is skin-only (a beatmap can't ship one)
+        /// and ignores timing-point volume — osu! plays it at the effect volume, not the map's.
+        /// </summary>
+        public void PlayComboBreak()
+        {
+            if (_clips.TryGetValue(ComboBreak, out var clip)) { _source.PlayOneShot(clip, Volume); return; }
+            if (_silent.Contains(ComboBreak)) return;
+            if (_defaults.TryGetValue(ComboBreak, out var def)) _source.PlayOneShot(def, Volume);
         }
 
         // ----------------------------------------------------------------- resolution
 
-        private void PlayComponent(SampleBank bank, string type, string suffix, float vol, AudioClip fallback)
+        /// <summary>
+        /// Resolve one sample component and play it. Order matches osu!: the exact custom index from the
+        /// beatmap/skin, then index 1 of the same bank+type, then the bundled default skin.
+        /// </summary>
+        private void PlayComponent(SampleBank bank, string type, string suffix, float vol)
         {
-            string key = BankName(bank) + "-" + type + suffix;
-            if (_clips.TryGetValue(key, out var clip)) { _source.PlayOneShot(clip, vol); return; }
-            if (_silent.Contains(key)) return;                  // skin muted this sample on purpose
-            _source.PlayOneShot(fallback, vol);                 // no sample present -> synth
+            string name = BankName(bank) + "-" + type;
+
+            if (TryPlay(name + suffix, vol)) return;               // exact custom index (or index 1)
+            if (suffix.Length > 0 && TryPlay(name, vol)) return;   // custom index absent -> index 1
+            if (_defaults.TryGetValue(name, out var def)) _source.PlayOneShot(def, vol);
+        }
+
+        /// <summary>True if the key resolved — either to a loaded clip (played) or to deliberate silence.</summary>
+        private bool TryPlay(string key, float vol)
+        {
+            if (_clips.TryGetValue(key, out var clip)) { _source.PlayOneShot(clip, vol); return true; }
+            return _silent.Contains(key); // skin muted this sample on purpose: resolved, play nothing
         }
 
         private SampleBank ResolveBank(SampleBank obj, TimingPoint tp)
@@ -135,8 +160,26 @@ namespace OsuUnity.Gameplay
         // ----------------------------------------------------------------- loading
 
         /// <summary>
+        /// Load the bundled osu! default skin from Resources. These are the last-resort samples every
+        /// lookup falls back to, so they load synchronously before the first hit object can fire.
+        /// </summary>
+        private void LoadDefaultSkin()
+        {
+            foreach (string bank in Banks)
+                foreach (string type in Types)
+                {
+                    string key = bank + "-" + type;
+                    var clip = Resources.Load<AudioClip>(DefaultSkinPath + key);
+                    if (clip != null) _defaults[key] = clip;
+                }
+
+            var cb = Resources.Load<AudioClip>(DefaultSkinPath + ComboBreak);
+            if (cb != null) _defaults[ComboBreak] = cb;
+        }
+
+        /// <summary>
         /// Load every sample we might reference from the beatmap folder (priority) then the skin folder.
-        /// Runs once at startup; the first few hits use the synth fallback if a file is still loading.
+        /// Runs once at startup; the first few hits use the default skin if a file is still loading.
         /// </summary>
         private IEnumerator Preload()
         {
@@ -146,6 +189,9 @@ namespace OsuUnity.Gameplay
                 foreach (string bank in Banks)
                     foreach (string type in Types)
                         yield return TryLoad(bank + "-" + type + suffix, dirs);
+
+            // combobreak is a skin sample only — a beatmap folder never provides one.
+            yield return TryLoad(ComboBreak, new[] { Skin.Current?.Directory });
         }
 
         /// <summary>The set of custom-index suffixes referenced anywhere in the map (plus the default "").</summary>
@@ -197,26 +243,6 @@ namespace OsuUnity.Gameplay
                     yield break;           // first matching file (beatmap beats skin) wins
                 }
             }
-        }
-
-        /// <summary>Generate a percussive click: a decaying sine mixed with optional noise.</summary>
-        private static AudioClip MakeClick(float freq, float duration, float noise)
-        {
-            int rate = 44100;
-            int samples = Mathf.Max(1, (int)(rate * duration));
-            var data = new float[samples];
-            var rng = new System.Random(unchecked((int)(freq * 1000)));
-            for (int i = 0; i < samples; i++)
-            {
-                float t = i / (float)rate;
-                float env = Mathf.Exp(-t * 35f);
-                float tone = Mathf.Sin(2f * Mathf.PI * freq * t);
-                float n = noise > 0 ? (float)(rng.NextDouble() * 2 - 1) * noise : 0f;
-                data[i] = (tone * (1f - noise) + n) * env;
-            }
-            var clip = AudioClip.Create("click", samples, 1, rate, false);
-            clip.SetData(data, 0);
-            return clip;
         }
     }
 }

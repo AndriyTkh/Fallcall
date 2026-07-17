@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fallcall — Song Select — Filters Open</title>
+<link rel="stylesheet" href="theme_1.css">
+<link rel="stylesheet" href="art.css">
+<link rel="stylesheet" href="songselect.css">
+</head>
+<body style="--map-accent:#6f8a6d">
+
+<div class="screen">
+
+  <div class="world">
+    <div class="wash"></div>
+    <div class="plane p1"></div>
+    <div class="plane p2"></div>
+    <div class="plane p3"></div>
+  </div>
+
+  <header class="rail">
+    <div class="mark">FALL<span>CALL</span></div>
+    <div class="seg" role="group" aria-label="Library source">
+      <button aria-pressed="true">Local</button>
+      <button aria-pressed="false">Online</button>
+    </div>
+    <div class="search"><div class="prompt">type to search — title / artist / creator</div></div>
+
+    <!-- Active filters stay visible in the rail after the panel closes.
+         A filtered library that does not say it is filtered is a trap. -->
+    <div class="chips">
+      <span class="chip">★ 6.0–8.5 <b>×</b></span>
+      <span class="chip">VIDEO <b>×</b></span>
+      <span class="chip ghost">/ FILTERS</span>
+    </div>
+    <div class="count">38 OF 214</div>
+  </header>
+
+  <main class="stage">
+
+    <section class="filters" aria-label="Filters">
+      <div class="f-group">
+        <h4>Star rating</h4>
+        <div class="f-val">6.0 — 8.5 <small>★</small></div>
+        <div class="track">
+          <span class="fill" style="left:60%; right:15%"></span>
+          <span class="knob" style="left:calc(60% - 5px)"></span>
+          <span class="knob" style="left:calc(85% - 5px)"></span>
+        </div>
+        <div class="scale"><span>0</span><span>2</span><span>4</span><span>6</span><span>8</span><span>10+</span></div>
+      </div>
+
+      <div class="f-group">
+        <h4>Length</h4>
+        <div class="f-val">0:00 — 10:00+ <small>any</small></div>
+        <div class="track">
+          <span class="fill" style="left:0; right:0; background:var(--plate-sunk)"></span>
+          <span class="knob" style="left:-1px"></span>
+          <span class="knob" style="right:-1px"></span>
+        </div>
+        <div class="scale"><span>0:00</span><span>2:30</span><span>5:00</span><span>7:30</span><span>10:00+</span></div>
+      </div>
+
+      <div class="f-group">
+        <h4>BPM</h4>
+        <div class="f-val">60 — 300 <small>any</small></div>
+        <div class="track">
+          <span class="fill" style="left:0; right:0; background:var(--plate-sunk)"></span>
+          <span class="knob" style="left:-1px"></span>
+          <span class="knob" style="right:-1px"></span>
+        </div>
+        <div class="scale"><span>60</span><span>120</span><span>180</span><span>240</span><span>300</span></div>
+      </div>
+
+      <div class="f-group">
+        <h4>Has · Sort</h4>
+        <div class="f-toggles" style="margin-bottom:12px">
+          <button class="toggle" aria-pressed="true">Video</button>
+          <button class="toggle" aria-pressed="false">Storyboard</button>
+        </div>
+        <div class="seg">
+          <button aria-pressed="true">Title</button>
+          <button aria-pressed="false">Artist</button>
+          <button aria-pressed="false">★</button>
+          <button aria-pressed="false">Recent</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="column" style="top:210px">
+      <div class="row">
+        <i class="r-spine"></i>
+        <span class="r-title">AXION ~ 光の残響</span>
+        <span class="r-artist">Camellia</span>
+        <span class="r-flags"><i class="flag">V</i><i class="flag">SB</i></span>
+        <span class="r-star-cell"><span class="r-count">×8</span><span class="star r-star q5">8.13</span></span>
+      </div>
+
+      <article class="datum" aria-selected="true">
+        <i class="d-spine"></i>
+        <div class="art"><div class="img a-pastel"></div></div>
+        <div class="d-info">
+          <h1 class="d-title">Blue Zenith</h1>
+          <div class="d-by"><b>Hommarju</b><span class="sep">/</span>mapped by <b>Asphyxia</b></div>
+          <div class="d-meta">
+            <span class="status ranked">Ranked</span>
+            <span class="m">4:16</span>
+            <span class="m">200 BPM</span>
+            <span class="m">♡ 8,412</span>
+            <i class="flag">V</i>
+          </div>
+        </div>
+        <div class="d-star-cell">
+          <div class="d-diffs">4 DIFFICULTIES</div>
+          <div class="star d-star q4"><span class="g">★</span>7.79</div>
+          <div class="d-diffs">FOUR DIMENSIONS</div>
+        </div>
+      </article>
+
+      <div class="row">
+        <i class="r-spine"></i>
+        <span class="r-title">混沌 ~ Chaos Theory (Long Ver.)</span>
+        <span class="r-artist">t+pazolite</span>
+        <span class="r-flags"><i class="flag">V</i></span>
+        <span class="r-star-cell"><span class="r-count">×9</span><span class="star r-star q4">7.04</span></span>
+      </div>
+
+      <div class="row">
+        <i class="r-spine"></i>
+        <span class="r-title">Deep Blue Town</span>
+        <span class="r-artist">Aotoki</span>
+        <span class="r-flags"><i class="flag">V</i></span>
+        <span class="r-star-cell"><span class="r-count">×5</span><span class="star r-star q4">6.85</span></span>
+      </div>
+
+      <div class="row">
+        <i class="r-spine"></i>
+        <span class="r-title">Zenith Protocol</span>
+        <span class="r-artist">Kobaryo</span>
+        <span class="r-flags"><i class="flag">V</i></span>
+        <span class="r-star-cell"><span class="r-count">×5</span><span class="star r-star q4">7.44</span></span>
+      </div>
+    </div>
+
+    <aside class="caption" style="top:230px">
+      <h5>Filters open · ★ 6.0–8.5 · has video</h5>
+      <p>Comes down from the rail it belongs to, and goes back up into it.
+         Range handles are square and the numbers are printed — the bar is a
+         second reading of the value, never the only one.</p>
+    </aside>
+  </main>
+
+  <footer class="foot">
+    <div class="key"><kbd>⇥</kbd><span>Next control</span></div>
+    <div class="key"><kbd>←</kbd><kbd>→</kbd><span>Adjust</span></div>
+    <div class="key"><kbd>space</kbd><span>Toggle</span></div>
+    <div class="key"><kbd>⏎</kbd><span>Apply &amp; return</span></div>
+    <div class="key"><kbd>esc</kbd><span>Close (keeps filters)</span></div>
+  </footer>
+
+</div>
+</body>
+</html>

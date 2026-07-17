@@ -8,7 +8,9 @@ namespace OsuUnity.Visual
 {
     public sealed class SpinnerObject : DrawableHitObject
     {
-        public int DepthOrder;
+        /// <summary>This object's sorting-order slot, from <see cref="Util.RenderOrder.HitObject"/>.
+        /// The parts below sit at -1…+4 around it, inside <see cref="Util.RenderOrder.HitObjectStride"/>.</summary>
+        public int SortingBase;
 
         private Spinner _spinner;
         private Vector3 _centre;
@@ -33,7 +35,7 @@ namespace OsuUnity.Visual
             _centre = ctx.Playfield.ToWorld(new Vector2(256, 192));
             _spawnTime = ho.StartTime - ctx.Preempt * 0.5;
 
-            int b = DepthOrder * 10;
+            int b = SortingBase;
             float big = ctx.Playfield.OsuToWorldDistance(Playfield.Height * 0.45f) * 2f;
             _bigDiameter = big;
 

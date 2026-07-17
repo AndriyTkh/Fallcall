@@ -1,0 +1,295 @@
+/* Fallcall — Song Select "The Datum" — component sheet (mockup medium: HTML) */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-sans) !important;
+  background: var(--paper) !important;
+  color: var(--ink) !important;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+.screen {
+  display: grid;
+  grid-template-rows: var(--rail-h) 1fr var(--foot-h);
+  height: 100vh;
+  min-height: 640px;
+  position: relative;
+  isolation: isolate;
+}
+
+/* ---------------------------------------------------------------- world -- */
+/* Vast, slow, empty. Flat planes only. Never behind text. */
+.world { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.wash {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(90% 70% at 84% 6%, color-mix(in srgb, var(--map-accent) 30%, transparent), transparent 62%),
+    radial-gradient(80% 60% at 10% 104%, color-mix(in srgb, var(--map-accent) 22%, transparent), transparent 60%);
+  transition: background var(--t-slow);
+}
+.plane { position: absolute; background: var(--paper-2); opacity: .62; }
+.p1 { inset: -8% 40% 62% -10%; clip-path: polygon(0 0, 100% 22%, 88% 100%, 0 78%); animation: drift-a 96s ease-in-out infinite alternate; }
+.p2 { inset: 58% -12% -10% 46%; background: var(--paper-3); clip-path: polygon(6% 0, 100% 18%, 100% 100%, 0 100%); animation: drift-b 124s ease-in-out infinite alternate; }
+.p3 { inset: -4% -6% 74% 58%; background: var(--paper-3); opacity: .5; clip-path: polygon(0 34%, 100% 0, 100% 100%, 18% 100%); animation: drift-b 150s ease-in-out infinite alternate-reverse; }
+@keyframes drift-a { from { transform: translate3d(0,0,0); } to { transform: translate3d(2.2%, 1.2%, 0); } }
+@keyframes drift-b { from { transform: translate3d(0,0,0); } to { transform: translate3d(-1.8%, -1%, 0); } }
+@media (prefers-reduced-motion: reduce) { .plane { animation: none !important; } }
+
+/* ----------------------------------------------------------------- rail -- */
+.rail {
+  z-index: 3;
+  display: flex; align-items: center; gap: 28px;
+  padding: 0 var(--gutter);
+  background: var(--plate);
+  border-bottom: var(--edge);
+}
+.mark { font-weight: 700; font-size: 15px; letter-spacing: .26em; text-transform: uppercase; }
+.mark span { color: var(--ink-3); }
+
+.seg { display: flex; border: var(--edge); }
+.seg button {
+  font: 600 11px/1 var(--font-sans); letter-spacing: .16em; text-transform: uppercase;
+  padding: 8px 14px; background: transparent; color: var(--ink-2); border: 0; cursor: pointer;
+}
+.seg button + button { border-left: var(--edge); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--plate); }
+
+/* type-to-search: no field to click. The rail IS the field. */
+.search { flex: 1; display: flex; align-items: center; gap: 12px; min-width: 0; }
+.search .prompt {
+  font: 500 13px/1 var(--font-mono); color: var(--ink-4); letter-spacing: .04em;
+  border-bottom: 1px solid transparent; padding: 6px 0;
+}
+.search.live .prompt { color: var(--ink); border-bottom: 2px solid var(--ink); min-width: 220px; }
+.caret { display: inline-block; width: 8px; height: 15px; background: var(--ink); vertical-align: -2px; animation: blink 1.1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.count { font: 500 11px/1 var(--font-mono); color: var(--ink-2); letter-spacing: .08em; }
+
+.chips { display: flex; gap: 6px; align-items: center; }
+.chip {
+  font: 500 11px/1 var(--font-mono); letter-spacing: .04em;
+  padding: 6px 8px; border: 1px solid var(--hard); background: var(--ink); color: var(--plate);
+  display: flex; gap: 8px; align-items: center;
+}
+.chip.ghost { background: transparent; color: var(--ink-2); border-color: var(--rule); }
+.rail .sort { font: 500 11px/1 var(--font-mono); color: var(--ink-2); letter-spacing: .08em; }
+.rail .sort b { color: var(--ink); font-weight: 600; }
+
+/* ---------------------------------------------------------------- stage -- */
+.stage { position: relative; z-index: 1; overflow: hidden; }
+
+/* The library column. Left-weighted; the right third is deliberately air. */
+.column {
+  position: absolute; inset: 0 auto 0 var(--gutter);
+  width: min(var(--col-max), 62vw);
+  display: flex; flex-direction: column; justify-content: center;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 13%, #000 86%, transparent 100%);
+          mask-image: linear-gradient(180deg, transparent 0, #000 13%, #000 86%, transparent 100%);
+}
+
+/* ----------------------------------------------------------------- rows -- */
+.row {
+  height: var(--row-h); flex: none;
+  display: grid;
+  grid-template-columns: 4px minmax(0, 1fr) 210px 46px 118px;
+  align-items: center; gap: 16px;
+  padding-right: 14px;
+  border-bottom: var(--hairline);
+  cursor: pointer;
+  transition: background var(--t-struct);
+}
+.row .r-spine { height: 100%; background: transparent; }
+.r-title { font-size: 17px; font-weight: 500; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.r-artist { font-size: 12.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.r-flags { display: flex; gap: 4px; justify-content: flex-start; }
+.r-star-cell { display: flex; align-items: baseline; justify-content: flex-end; gap: 10px; }
+.r-count { font: 500 10.5px/1 var(--font-mono); color: var(--ink-4); }
+.star { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.star .g { font-size: .58em; color: var(--ink-4); margin-right: .35em; }
+.r-star { font-size: 16px; font-weight: 600; }
+.q1 { color: var(--star-1); font-weight: 400 !important; }
+.q2 { color: var(--star-2); font-weight: 400 !important; }
+.q3 { color: var(--star-3); }
+.q4 { color: var(--star-4); }
+.q5 { color: var(--star-5); font-weight: 700 !important; }
+
+.row:hover { background: color-mix(in srgb, var(--plate) 55%, transparent); }
+.row:hover .r-spine { background: var(--rule); }
+
+/* flags: text glyphs, never colour-only */
+.flag {
+  font: 600 9px/1 var(--font-mono); letter-spacing: .04em;
+  border: 1px solid var(--ink-4); color: var(--ink-3);
+  padding: 3px 3px; display: inline-flex; align-items: center; height: 15px;
+}
+
+/* ---------------------------------------------------------------- datum -- */
+/* Fixed y. The library scrolls through it; the selection never moves. */
+.datum {
+  flex: none; position: relative;
+  background: var(--plate);
+  border: var(--edge);
+  box-shadow: var(--shadow-hard-lg);
+  margin: 22px 0;
+  display: grid;
+  grid-template-columns: 8px auto minmax(0, 1fr) auto;
+  gap: 0;
+}
+.d-spine { background: var(--map-accent); transition: background var(--t-slow); }
+
+/* Artwork is quarantined: recessed, hard-framed, and NO TEXT EVER SITS ON IT. */
+.art {
+  margin: 14px; width: 132px; height: 132px; align-self: center;
+  background: var(--plate-sunk); border: var(--edge);
+  overflow: hidden; position: relative;
+}
+.art > .img { position: absolute; inset: 0; }
+
+.d-info { padding: 18px 20px 16px 6px; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 6px; }
+.d-title {
+  font-size: 38px; font-weight: 600; line-height: 1.02; letter-spacing: -.015em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.d-by { font-size: 13px; color: var(--ink-2); }
+.d-by b { font-weight: 500; color: var(--ink); }
+.d-by .sep { color: var(--ink-4); margin: 0 8px; }
+.d-meta { display: flex; align-items: center; gap: 14px; margin-top: 6px; }
+.d-meta .m { font: 500 11.5px/1 var(--font-mono); color: var(--ink-2); letter-spacing: .04em; }
+.d-meta .status { font: 600 9.5px/1 var(--font-sans); letter-spacing: .18em; text-transform: uppercase; border: 1px solid var(--ink-2); color: var(--ink-2); padding: 4px 6px; }
+.d-meta .status.ranked { background: var(--ink); border-color: var(--ink); color: var(--plate); }
+
+/* star column: right edge is the same x in every row, band, and difficulty */
+.d-star-cell {
+  padding: 18px 14px 16px; display: flex; flex-direction: column;
+  align-items: flex-end; justify-content: center; gap: 6px; min-width: 132px;
+}
+.d-star { font-size: 44px; font-weight: 700; line-height: 1; }
+.d-diffs { font: 500 10px/1 var(--font-mono); color: var(--ink-3); letter-spacing: .1em; }
+
+/* -------------------------------------------------- expanded difficulties */
+.d-list { grid-column: 1 / -1; border-top: var(--edge); }
+.diff {
+  display: grid; grid-template-columns: 8px minmax(0, 1fr) 74px 66px 118px;
+  align-items: center; gap: 16px; padding-right: 14px; height: 40px;
+  border-bottom: 1px solid var(--rule); cursor: pointer;
+}
+.diff:last-child { border-bottom: 0; }
+.diff .d-bar { height: 100%; background: transparent; }
+.diff-name { font-size: 14px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.diff .m { font: 400 11px/1 var(--font-mono); color: var(--ink-4); }
+.diff .r-star-cell .star { font-size: 15px; }
+.diff:hover { background: var(--plate-hi); }
+.diff[aria-selected="true"] { background: var(--ink); }
+.diff[aria-selected="true"] .d-bar { background: var(--map-accent); }
+.diff[aria-selected="true"] .diff-name { color: var(--plate); font-weight: 500; }
+.diff[aria-selected="true"] .m { color: var(--ink-4); }
+.diff[aria-selected="true"] .star { color: #fff !important; }
+/* CS/AR/OD/HP: invisible until the row is the decision. */
+.params { display: none; gap: 12px; }
+.diff[aria-selected="true"] .params { display: flex; }
+.params i { font: 400 9.5px/1 var(--font-mono); font-style: normal; color: var(--ink-4); letter-spacing: .06em; }
+.params i b { color: var(--plate); font-weight: 500; }
+
+/* ---------------------------------------------------------------- focus -- */
+/* As loud as hover, and different in kind: hover lightens, focus is framed. */
+.focus-ring { outline: 3px solid var(--hard); outline-offset: -3px; position: relative; background: var(--plate-hi) !important; }
+.focus-ring::before {
+  content: ''; position: absolute; left: -11px; top: 0; bottom: 0; width: 8px; background: var(--hard);
+}
+.datum.focus-ring { outline-offset: 3px; }
+.datum.focus-ring::before { left: -14px; }
+
+/* mockup: frozen hover, since a static frame has no pointer */
+.row.is-hover { background: color-mix(in srgb, var(--plate) 55%, transparent); }
+.row.is-hover .r-spine { background: var(--rule); }
+
+/* mockup: hover-vs-focus comparison, parked in the right-hand air */
+.compare {
+  position: absolute; z-index: 6; right: var(--gutter); bottom: 8%;
+  width: 300px; display: flex; flex-direction: column; gap: 14px;
+}
+.compare h5 { font: 600 9.5px/1 var(--font-sans); letter-spacing: .2em; text-transform: uppercase; color: var(--ink-3); }
+.compare .mini {
+  height: 42px; display: flex; align-items: center; gap: 12px; padding: 0 12px;
+  border-bottom: var(--hairline); background: transparent; position: relative;
+}
+.compare .mini span { font-size: 14px; }
+.compare .mini .star { font-size: 14px; margin-left: auto; }
+.compare .lbl { font: 400 10px/1.4 var(--font-mono); color: var(--ink-2); }
+
+/* --------------------------------------------------------------- filters -- */
+/* Anchored to the rail: it comes down from the rail, always, and returns there. */
+.filters {
+  position: absolute; z-index: 2; left: 0; right: 0; top: 0;
+  background: var(--plate); border-bottom: var(--edge);
+  padding: 24px var(--gutter) 22px;
+  box-shadow: var(--shadow-hard);
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: 34px;
+  animation: drop var(--t-struct) both;
+}
+@keyframes drop { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+.f-group h4 { font: 600 9.5px/1 var(--font-sans); letter-spacing: .2em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 12px; }
+.f-val { font: 600 13px/1 var(--font-mono); margin-bottom: 10px; letter-spacing: .02em; }
+.f-val small { color: var(--ink-4); font-weight: 400; }
+.track { height: 10px; background: var(--plate-sunk); border: 1px solid var(--hard); position: relative; }
+.track .fill { position: absolute; top: 0; bottom: 0; background: var(--ink); }
+.track .knob { position: absolute; top: -5px; width: 10px; height: 20px; background: var(--plate); border: 2px solid var(--hard); }
+.scale { display: flex; justify-content: space-between; margin-top: 7px; font: 400 9.5px/1 var(--font-mono); color: var(--ink-4); }
+.f-toggles { display: flex; gap: 8px; align-items: flex-end; }
+.toggle {
+  font: 600 10px/1 var(--font-sans); letter-spacing: .14em; text-transform: uppercase;
+  padding: 10px 12px; border: var(--edge); background: transparent; color: var(--ink-2); cursor: pointer;
+}
+.toggle[aria-pressed="true"] { background: var(--ink); color: var(--plate); }
+.toggle[aria-pressed="true"]::before { content: '\2713\00a0\00a0'; }
+
+/* ---------------------------------------------------------------- search -- */
+/* Match marking is an underline, not a highlight colour — survives greyscale. */
+mark { background: transparent; color: inherit; box-shadow: inset 0 -2px 0 var(--ink); }
+.d-title mark { box-shadow: inset 0 -3px 0 var(--ink); }
+.match-in { font: 500 9px/1 var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-4); border: 1px solid var(--rule); padding: 3px 4px; }
+
+/* ---------------------------------------------------------------- online -- */
+.dl {
+  width: 28px; height: 28px; border: var(--edge); background: transparent;
+  font: 600 12px/1 var(--font-mono); color: var(--ink); cursor: pointer;
+  display: grid; place-items: center;
+}
+.dl:hover { background: var(--ink); color: var(--plate); }
+.progress { position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; background: var(--plate-sunk); }
+.progress .bar { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink); }
+
+/* ----------------------------------------------------------------- foot -- */
+.foot {
+  z-index: 3; display: flex; align-items: center; gap: 26px;
+  padding: 0 var(--gutter);
+  background: var(--plate); border-top: var(--edge);
+}
+.key { display: flex; align-items: center; gap: 8px; }
+.key kbd {
+  font: 500 10px/1 var(--font-mono); border: 1px solid var(--ink-2); color: var(--ink);
+  padding: 4px 5px; min-width: 18px; text-align: center;
+}
+.key span { font: 500 9.5px/1 var(--font-sans); letter-spacing: .16em; text-transform: uppercase; color: var(--ink-2); }
+
+/* ------------------------------------------------------------ mockup only -- */
+.caption {
+  position: absolute; z-index: 6; right: var(--gutter); top: calc(var(--rail-h) + 22px);
+  text-align: right; max-width: 26ch;
+}
+.caption h5 { font: 600 10px/1 var(--font-sans); letter-spacing: .2em; text-transform: uppercase; color: var(--ink-2); }
+.caption p { font: 400 11px/1.5 var(--font-mono); color: var(--ink-3); margin-top: 8px; }
+.note {
+  position: absolute; z-index: 6;
+  font: 400 10px/1.4 var(--font-mono); color: var(--ink-2);
+  border: 1px dashed var(--ink-3); padding: 5px 7px; background: color-mix(in srgb, var(--plate) 88%, transparent);
+}
+
+@media (max-width: 1200px) {
+  :root { --gutter: 4vw; }
+  .column { width: 74vw; }
+  .d-title { font-size: 30px; }
+  .row { grid-template-columns: 4px minmax(0, 1fr) 140px 40px 104px; }
+}

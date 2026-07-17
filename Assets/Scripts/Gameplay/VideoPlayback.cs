@@ -15,7 +15,13 @@ namespace OsuUnity.Gameplay
     /// </summary>
     public sealed class VideoPlayback : MonoBehaviour
     {
-        private const float DriftToleranceMs = 100f;
+        // A seek is a visible glitch (decoder flush + keyframe search), so only resync that way once the
+        // drift is bad enough to notice. Anything smaller is pulled in with playbackSpeed instead.
+        private const float ResyncMs = 250f;
+        private const float SoftDriftMs = 30f;
+        private const float SoftRate = 0.05f;        // +/-5%; the video has no audio track, so rate changes are silent
+        private const float SeekCooldownSec = 0.5f;  // a seek needs frames to land; re-issuing sooner just cancels it
+        private const float SeekTimeoutSec = 1.5f;   // seekCompleted doesn't fire for a no-op seek; don't wait forever
 
         private VideoPlayer _player;
         private RenderTexture _rt;
@@ -26,6 +32,9 @@ namespace OsuUnity.Gameplay
         private double _offsetMs;
         private bool _ready;
         private bool _paused;
+        private bool _started;
+        private bool _seeking;
+        private float _lastSeekAt;
 
         /// <summary>Begin preparing the video. <paramref name="farDistance"/> must sit beyond the
         /// gameplay chunk's radius but inside the camera's far clip plane.</summary>
@@ -65,17 +74,15 @@ namespace OsuUnity.Gameplay
                       ?? Shader.Find("UI/Default");
             var mat = new Material(shader) { mainTexture = _rt };
             // Position alone (localPosition.z == farDistance) doesn't order this correctly: the fallback
-            // Sprites/Default renders in the transparent queue (3000) with ZWrite off, so it paints over the
-            // guide arrows / UI. But dropping it all the way to Background (1000) is too far — with ZWrite
-            // off the skybox pass then overwrites it and the video vanishes entirely. Park it at 2501: after
-            // the skybox + opaque geometry (so it stays visible), before the transparent gameplay layer
-            // (3000) so arrows and UI draw on top of it.
-            mat.renderQueue = 2501; // RenderQueue.GeometryLast (2500) + 1
+            // Sprites/Default renders in the transparent queue with ZWrite off, so it would paint over the
+            // guide arrows / UI. See Util/RenderOrder for the band it belongs to and why.
+            mat.renderQueue = Util.RenderOrder.VideoBackdropQueue;
             _quadRenderer = quadGo.GetComponent<MeshRenderer>();
             _quadRenderer.sharedMaterial = mat;
             _quadRenderer.enabled = false; // hidden until the video actually starts (offset may be > 0)
 
             _player.prepareCompleted += _ => _ready = true;
+            _player.seekCompleted += _ => _seeking = false;
             _player.Prepare();
         }
 
@@ -108,21 +115,56 @@ namespace OsuUnity.Gameplay
             if (videoTimeMs < 0)
             {
                 if (_player.isPlaying) _player.Pause();
+                _started = false;   // lead-in, or a skip back before the video's start: re-seek when it comes round again
                 _quadRenderer.enabled = false;
                 return;
             }
 
-            if (!_player.isPlaying)
+            if (!_started)
             {
-                _player.time = videoTimeMs / 1000.0;
+                Seek(videoTimeMs);
                 _player.Play();
+                _started = true;
+                return;             // nothing meaningful to measure until that seek lands
+            }
+
+            if (!_player.isPlaying) _player.Play();
+            _quadRenderer.enabled = true;
+
+            // VideoPlayer.time reports the last *presented* frame, so it stays stale for as long as a seek is
+            // in flight. Comparing against that stale time and re-seeking would abort the pending seek and
+            // re-issue it every frame -- the decoder never gets to deliver a frame and the video stalls dead.
+            // So: don't touch it until seekCompleted fires (with a timeout, since a seek that resolves to the
+            // current frame completes silently without ever raising the event).
+            if (_seeking)
+            {
+                if (Time.unscaledTime - _lastSeekAt > SeekTimeoutSec) _seeking = false;
+                return;
+            }
+
+            double drift = videoTimeMs - _player.time * 1000.0;
+            if (Math.Abs(drift) > ResyncMs)
+            {
+                if (Time.unscaledTime - _lastSeekAt > SeekCooldownSec) Seek(videoTimeMs);
+            }
+            else if (Math.Abs(drift) > SoftDriftMs)
+            {
+                // Close the gap by running the decoder a touch fast/slow rather than seeking. Under ~250ms
+                // that is invisible, where a seek would be a hard hitch.
+                _player.playbackSpeed = 1f + Math.Sign(drift) * SoftRate;
             }
             else
             {
-                double drift = videoTimeMs - _player.time * 1000.0;
-                if (Math.Abs(drift) > DriftToleranceMs) _player.time = videoTimeMs / 1000.0;
+                _player.playbackSpeed = 1f;
             }
-            _quadRenderer.enabled = true;
+        }
+
+        private void Seek(double videoTimeMs)
+        {
+            _seeking = true;
+            _lastSeekAt = Time.unscaledTime;
+            _player.playbackSpeed = 1f;
+            _player.time = videoTimeMs / 1000.0;
         }
 
         /// <summary>Mirrors <see cref="GameClock"/>'s pause state (called from GameManager's pause toggle).</summary>
@@ -130,8 +172,9 @@ namespace OsuUnity.Gameplay
         {
             _paused = paused;
             if (_player == null) return;
+            // Resuming is left to Tick: it re-Plays only once the song time says the video should be visible,
+            // and reseeks from there. Calling Play() here would also start the video during the lead-in.
             if (paused) _player.Pause();
-            else if (_ready) _player.Play();
         }
 
         private void OnDestroy()

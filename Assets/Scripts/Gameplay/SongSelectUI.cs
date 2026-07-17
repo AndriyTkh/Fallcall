@@ -1,17 +1,20 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
 using OsuUnity.Beatmaps;
 using OsuUnity.UI;
+using OsuUnity.Util;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Networking;
 using UnityEngine.UI;
+using Debug = UnityEngine.Debug;
 
-// INDEX: Song select on the U1 UI kit — Local/Online sources (mirror search + download→auto-import), set carousel + detail panel, audio preview (PreviewTime local / ppy preview online), star/length/BPM filters + sort, type-to-search, full keyboard nav, glance metadata (CS/AR/OD/HP/len/BPM). Built at runtime via uGUI+TMP.
+// INDEX: Song select on the U1 UI kit — Local/Online sources (mirror search + download→auto-import), set carousel + detail panel, audio preview (PreviewTime local / ppy preview online), star/length/BPM filters + sort (defaults to Date Added), type-to-search, full keyboard nav, glance metadata (CS/AR/OD/HP/len/BPM). Built at runtime via uGUI+TMP.
 namespace OsuUnity.Gameplay
 {
     /// <summary>
@@ -31,7 +34,7 @@ namespace OsuUnity.Gameplay
     {
         public event Action<BeatmapSetInfo, BeatmapDifficultyInfo> PlaySelected;
 
-        private enum SortMode { Title, Artist, Stars, SetId }
+        private enum SortMode { DateAdded, Title, Artist, Stars, SetId }
         private enum Source { Local, Online }
 
         // ------------------------------------------------------------- state
@@ -62,7 +65,7 @@ namespace OsuUnity.Gameplay
         private int _searchSeq;   // guards against a stale search response overwriting a newer one
 
         private string _search = "";
-        private SortMode _sort = SortMode.Title;
+        private SortMode _sort = SortMode.DateAdded;   // newest import first — how players usually look for a map
 
         // Filter bounds. A filter is "active" only when narrowed from its full span (so we avoid parsing
         // every map just to draw the default view). Stars come free from BeatmapDifficultyInfo; length/BPM
@@ -115,6 +118,7 @@ namespace OsuUnity.Gameplay
         private string _previewPath;
         private AudioClip _previewClip;
         private Coroutine _bgCo;
+        private Coroutine _artCo;  // walks the carousel filling in card art (see PrefetchSetArt)
         private bool _launching;   // one-shot guard so a play action can't fire PlaySelected twice
 
         // ------------------------------------------------------------- lazy .osu metadata cache
@@ -242,6 +246,9 @@ namespace OsuUnity.Gameplay
 
             _filtered = _sort switch
             {
+                // Newest import first, then title so a bulk import (one shared timestamp) still reads in order.
+                SortMode.DateAdded => q.OrderByDescending(s => s.DateAddedUtc)
+                                       .ThenBy(SetTitle, StringComparer.OrdinalIgnoreCase).ToList(),
                 SortMode.Artist => q.OrderBy(SetArtist, StringComparer.OrdinalIgnoreCase).ToList(),
                 SortMode.Stars => q.OrderBy(s => s.Difficulties.Count > 0 ? s.Difficulties.Max(d => d.Stars) : 0.0).ToList(),
                 SortMode.SetId => q.OrderBy(s => s.OnlineSetId ?? int.MaxValue).ToList(),
@@ -313,6 +320,7 @@ namespace OsuUnity.Gameplay
             _setList.Clear();
             _setRows.Clear();
 
+            var cards = new List<UiRow>(_filtered.Count);
             foreach (var set in _filtered)
             {
                 var captured = set;
@@ -332,35 +340,44 @@ namespace OsuUnity.Gameplay
                 if (row.subtitle != null) row.subtitle.text = SetSubtitle(captured);
                 if (row.marker != null) row.marker.enabled = false;
 
+                cards.Add(row);
                 _setRows.Add(new SetRow { Go = row.gameObject, Marker = row.marker });
             }
+
+            PrefetchSetArt(new List<BeatmapSetInfo>(_filtered), cards);
         }
 
-        // The default code-built beatmap-set row — used when no setRowPrefab is assigned, so the screen is
-        // byte-identical to before with zero wiring. A developer can instead assign a styled prefab (carrying
-        // a UiRow with these same slots) to restyle rows without touching this script.
-        private UiRow DefaultSetRow(Transform parent)
+        // Card art for the whole carousel, not just the selection — a library you can only recognise one map
+        // at a time is a list of grey rectangles. Local art is the map's own background, whose path only
+        // exists after the .osu is parsed, so this walks the list a few sets per frame instead of parsing the
+        // entire library in the frame a filter changes. UiCoverCache handles the loads from there.
+        private void PrefetchSetArt(List<BeatmapSetInfo> sets, List<UiRow> cards)
         {
-            var btn = UiKit.Row(parent, 58f, null, out var content);
-
-            var marker = SelectionMarker(content);
-
-            var title = UiKit.Label(content, "", UiTheme.Text.Body, TextAlignmentOptions.TopLeft);
-            UiKit.Anchor(title.rectTransform, new Vector2(0, 0.5f), new Vector2(1, 1), new Vector2(8, 0), new Vector2(0, 0));
-            title.enableWordWrapping = false;
-            title.overflowMode = TextOverflowModes.Ellipsis;
-
-            var sub = UiKit.Label(content, "", UiTheme.Text.Caption, TextAlignmentOptions.BottomLeft, UiTheme.TextSecondary);
-            UiKit.Anchor(sub.rectTransform, new Vector2(0, 0), new Vector2(1, 0.5f), new Vector2(8, 0), new Vector2(0, 0));
-
-            var row = btn.gameObject.AddComponent<UiRow>();
-            row.button = btn;
-            row.content = content;
-            row.title = title;
-            row.subtitle = sub;
-            row.marker = marker;
-            return row;
+            if (_artCo != null) StopCoroutine(_artCo);
+            _artCo = StartCoroutine(SetArtRoutine(sets, cards));
         }
+
+        private IEnumerator SetArtRoutine(List<BeatmapSetInfo> sets, List<UiRow> cards)
+        {
+            for (int i = 0; i < cards.Count && i < sets.Count; i++)
+            {
+                var card = cards[i];
+                if (card == null) continue;   // the list was rebuilt under us; the new one has its own pass
+
+                var first = sets[i].Difficulties.Count > 0 ? sets[i].Difficulties[0] : null;
+                string bg = first != null ? Meta(first).BackgroundPath : null;
+                UiMapCard.Bind(card, string.IsNullOrEmpty(bg) ? null : AssetLoader.ToFileUrl(bg));
+
+                if ((i & 3) == 3) yield return null;   // ~4 .osu parses per frame
+            }
+            _artCo = null;
+        }
+
+        // The default code-built beatmap-set row: the shared UiMapCard, so the carousel and the browse screen
+        // list maps as the same object. Used when no setRowPrefab is assigned, so the screen needs zero
+        // wiring; a developer can instead assign a styled prefab (carrying a UiRow with these same slots) to
+        // restyle cards without touching this script.
+        private UiRow DefaultSetRow(Transform parent) => UiMapCard.Build(parent);
 
         private static string SetSubtitle(BeatmapSetInfo set)
         {
@@ -855,6 +872,9 @@ namespace OsuUnity.Gameplay
                 if (row.subtitle != null) row.subtitle.text = OnlineSubtitle(os);
                 if (row.marker != null) row.marker.enabled = false;
 
+                // Online art is a URL, no .osu to parse first — bind the whole page straight away.
+                UiMapCard.Bind(row, BeatmapDownloader.CardUrl(os.Id));
+
                 _setRows.Add(new SetRow { Go = row.gameObject, Marker = row.marker });
             }
         }
@@ -1004,9 +1024,13 @@ namespace OsuUnity.Gameplay
 
             // Vorbis, not MPEG — b.ppy.sh serves Ogg under the .mp3 extension (docs/osu-api.md §1); the old
             // AudioType.MPEG made this a silent no-op.
-            using var req = UnityWebRequestMultimedia.GetAudioClip(BeatmapDownloader.PreviewUrl(id), AudioType.OGGVORBIS);
+            string previewUrl = BeatmapDownloader.PreviewUrl(id);
+            using var req = UnityWebRequestMultimedia.GetAudioClip(previewUrl, AudioType.OGGVORBIS);
             if (req.downloadHandler is DownloadHandlerAudioClip dh) dh.streamAudio = true;
+            ApiLog.Begin("preview", previewUrl);
+            var sw = Stopwatch.StartNew();
             yield return req.SendWebRequest();
+            ApiLog.End("preview", req, sw);
 
             if (req.result != UnityWebRequest.Result.Success || !_root.activeInHierarchy || _source != Source.Online) yield break;
             if (_onlineIndex < 0 || _onlineIndex >= _online.Count || _online[_onlineIndex].Id != id) yield break;   // moved on
@@ -1028,8 +1052,12 @@ namespace OsuUnity.Gameplay
 
         private IEnumerator OnlineBackgroundRoutine(int id)
         {
-            using var req = UnityWebRequestTexture.GetTexture(BeatmapDownloader.CoverUrl(id));
+            string coverUrl = BeatmapDownloader.CoverUrl(id);
+            using var req = UnityWebRequestTexture.GetTexture(coverUrl);
+            ApiLog.Begin("cover", coverUrl);
+            var sw = Stopwatch.StartNew();
             yield return req.SendWebRequest();
+            ApiLog.End("cover", req, sw);
             if (req.result != UnityWebRequest.Result.Success || _source != Source.Online) yield break;
             if (_onlineIndex < 0 || _onlineIndex >= _online.Count || _online[_onlineIndex].Id != id) yield break;
             SetBackground(DownloadHandlerTexture.GetContent(req));
@@ -1045,7 +1073,7 @@ namespace OsuUnity.Gameplay
 
         private void Build()
         {
-            var canvas = UiKit.CreateCanvas("SongSelectCanvas");
+            var canvas = UiKit.CreateCanvas("SongSelectCanvas", Util.RenderOrder.CanvasScreen);
             _root = canvas.gameObject;
             var rootRect = (RectTransform)_root.transform;
 
@@ -1076,7 +1104,7 @@ namespace OsuUnity.Gameplay
             sf.GetComponent<LayoutElement>().ignoreLayout = true;
             UiKit.Anchor(sf, new Vector2(0, 1), new Vector2(0.46f, 1), new Vector2(40, -122), new Vector2(-8, -82));
 
-            // sort (cycles Title → Artist → Stars → SetId)
+            // sort (cycles Date Added → Title → Artist → Stars → SetId)
             var sortBtn = UiKit.Button(root, "", CycleSort);
             var sr = (RectTransform)sortBtn.transform;
             sortBtn.GetComponent<LayoutElement>().ignoreLayout = true;
@@ -1237,14 +1265,16 @@ namespace OsuUnity.Gameplay
 
         private void CycleSort()
         {
-            _sort = (SortMode)(((int)_sort + 1) % 4);
+            _sort = (SortMode)(((int)_sort + 1) % Enum.GetValues(typeof(SortMode)).Length);
             UpdateSortLabel();
             RefreshList();
         }
 
         private void UpdateSortLabel()
         {
-            if (_sortLabel != null) _sortLabel.text = $"Sort: {_sort}";
+            if (_sortLabel == null) return;
+            string name = _sort == SortMode.DateAdded ? "Date Added" : _sort.ToString();
+            _sortLabel.text = $"Sort: {name}";
         }
 
         // A thin accent bar on a row's left edge that marks persistent selection (survives hover, unlike the

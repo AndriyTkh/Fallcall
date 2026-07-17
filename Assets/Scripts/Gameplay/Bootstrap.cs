@@ -168,8 +168,13 @@ namespace OsuUnity.Gameplay
         private void Update()
         {
             // Esc backs out of song select / browse to the main screen (§1.4 — Esc = back, everywhere).
+            // Consume it: ShowMain reveals the main screen, whose own Update would otherwise read this
+            // same still-down Esc as Quit.
             if ((_state == State.SongSelect || _state == State.Browsing) && !UiInput.Typing && Input.GetKeyDown(KeyCode.Escape))
+            {
                 ShowMain();
+                UiInput.Consume();
+            }
         }
 
         private static void Quit()

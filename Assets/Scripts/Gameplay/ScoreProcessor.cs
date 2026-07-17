@@ -29,6 +29,16 @@ namespace OsuUnity.Gameplay
         public double HP = 1.0; // 0..1
         public bool Failed;
 
+        /// <summary>
+        /// Raised when a combo worth announcing is lost, i.e. when the combo-break sound should play.
+        /// osu!lazer only plays it past <see cref="ComboBreakThreshold"/> (see ComboEffects), so small
+        /// combos break silently.
+        /// </summary>
+        public event Action OnComboBreak;
+
+        /// <summary>Combo must exceed this to make a break audible (osu!lazer ComboEffects).</summary>
+        public const int ComboBreakThreshold = 20;
+
         private double _hpDrain;    // per-miss drain, scaled by HP setting
         private double _hpRecover;  // per-hit recovery
 
@@ -72,7 +82,12 @@ namespace OsuUnity.Gameplay
 
             if (j == Judgement.Miss)
             {
-                if (affectsCombo) Combo = 0;
+                if (affectsCombo)
+                {
+                    bool audible = Combo > ComboBreakThreshold;
+                    Combo = 0;
+                    if (audible) OnComboBreak?.Invoke();
+                }
                 ChangeHp(-_hpDrain);
             }
             else

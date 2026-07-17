@@ -8,7 +8,9 @@ namespace OsuUnity.Visual
 {
     public sealed class HitCircleObject : DrawableHitObject
     {
-        public int DepthOrder;
+        /// <summary>This object's sorting-order slot, from <see cref="Util.RenderOrder.HitObject"/>.
+        /// The parts below add 0…<see cref="Util.RenderOrder.HitObjectStride"/>-1 on top of it.</summary>
+        public int SortingBase;
 
         private SpriteRenderer _body;
         private SpriteRenderer _overlay;
@@ -31,7 +33,7 @@ namespace OsuUnity.Visual
 
             Color combo = Ctx.ComboColour(Object.ComboColour);
             float dia = ctx.RadiusWorld * 2f;
-            int b = DepthOrder * 10;
+            int b = SortingBase;
 
             // osu! layering: hit circle (combo-tinted), overlay (untinted) and the combo number, with
             // the overlay either above or below the number per HitCircleOverlayAboveNumber.

@@ -25,7 +25,10 @@ namespace OsuUnity.UI
         public sealed class Callbacks
         {
             public Action<string> SearchChanged;
-            public Action SortClicked;
+            public Action<int> CategoryChanged;   // index into BrowseQuery.CategoryWords
+            public Action<int> SortChanged;        // index into BrowseQuery.SortWords
+            public Action SortDirClicked;          // flip ascending/descending
+            public Action<int, bool> ExtraChanged; // (index into BrowseQuery.ExtraWords, isOn)
             public Action FiltersReset;
             public Action PrimaryClicked;
             public Action<Filter, bool, float> FilterChanged;   // (which, isMin, value)
@@ -37,22 +40,23 @@ namespace OsuUnity.UI
         public RectTransform PreviewSlot;  // reserved: the autoplay-preview panel mounts here next pass
 
         public TMP_InputField SearchField;
-        public TMP_Text SortLabel, ResultsStatus, DetailTitle, DetailMeta, ActionStatus, Hint;
+        public TMP_Text ResultsStatus, DetailTitle, DetailMeta, ActionStatus, Hint, SortDirLabel;
         public Button PrimaryButton;
         public ScrollRect ResultsScroll, DiffScroll;
         public UiListView ResultList, DiffList;
+        public UiWordRow CategoryRow, SortRow, ExtraRow;
 
         private readonly UiRangeSlider[,] _filters = new UiRangeSlider[3, 2];   // [Filter, isMin ? 0 : 1]
 
         private const float ColumnSplit = 0.42f;   // left results column ends here
         private const float Margin = 40f;
         private const float TopBand = 86f;         // title strip height
-        private const float SearchPanelH = 356f;   // search + sort + the three filter pairs
+        private const float SearchPanelH = 470f;   // search + category/sort/extra word rows + the three filter pairs
 
         public static MapBrowserView Build(Callbacks cb, GameObject setRowPrefab, GameObject diffRowPrefab)
         {
             var v = new MapBrowserView();
-            var canvas = UiKit.CreateCanvas("MapBrowserCanvas");
+            var canvas = UiKit.CreateCanvas("MapBrowserCanvas", Util.RenderOrder.CanvasScreen);
             v.Root = canvas.gameObject;
             var root = (RectTransform)v.Root.transform;
 
@@ -121,7 +125,12 @@ namespace OsuUnity.UI
 
             SearchField = UiKit.SearchField(col, "Search the mirrors — artist / title / creator", cb.SearchChanged);
 
-            // sort + reset on one row
+            // Inline filter word-rows, in the osu! listing order: Category (leaderboard state), Sort by, Extra.
+            CategoryRow = MapBrowserWords.Build(col, "Category", BrowseQuery.CategoryWords, false, (i, _) => cb.CategoryChanged?.Invoke(i));
+            SortRow = MapBrowserWords.Build(col, "Sort by", BrowseQuery.SortWords, false, (i, _) => cb.SortChanged?.Invoke(i));
+            ExtraRow = MapBrowserWords.Build(col, "Extra", BrowseQuery.ExtraWords, true, (i, on) => cb.ExtraChanged?.Invoke(i, on));
+
+            // direction toggle + reset on one row (direction applies to the active Sort word)
             var actions = UiKit.NewRect("Actions", col);
             actions.gameObject.AddComponent<LayoutElement>().preferredHeight = UiTheme.ControlHeight;
             var hlg = actions.gameObject.AddComponent<HorizontalLayoutGroup>();
@@ -131,8 +140,8 @@ namespace OsuUnity.UI
             hlg.childControlHeight = true;
             hlg.childForceExpandHeight = true;
 
-            var sortBtn = UiKit.Button(actions, "", cb.SortClicked);
-            SortLabel = sortBtn.GetComponentInChildren<TMP_Text>();
+            var dirBtn = UiKit.Button(actions, "", cb.SortDirClicked);
+            SortDirLabel = dirBtn.GetComponentInChildren<TMP_Text>();
             UiKit.Button(actions, "Reset filters", cb.FiltersReset);
 
             AddFilter(col, cb, Filter.Stars, "Stars", BrowseFilters.StarLo, BrowseFilters.StarHi, "0.#");

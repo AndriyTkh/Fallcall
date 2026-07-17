@@ -14,36 +14,13 @@ namespace OsuUnity.UI
     /// <c>setRowPrefab</c>/<c>diffRowPrefab</c> carrying a <see cref="UiRow"/> and the developer's styled row
     /// wins — the screen only fills the named slots (see <c>UiScaffold.cs</c>).</para>
     ///
-    /// <para>Deliberate near-duplicate of the equivalents in <c>SongSelectUI</c>: pulling them up into the
-    /// shared <see cref="UiKit"/> touches a file this block doesn't own, so it is left as a follow-up rather
-    /// than done silently.</para>
+    /// <para>The set row is <see cref="UiMapCard"/> — the art-led card song select lists too, rather than the
+    /// near-copy of it that used to live here.</para>
     /// </summary>
     public static class MapBrowserRows
     {
-        /// <summary>A map row: cover-less title + subtitle (creator · diff count · star span · ✓ owned).</summary>
-        public static UiRow DefaultSetRow(Transform parent)
-        {
-            var btn = UiKit.Row(parent, 58f, null, out var content);
-            var marker = SelectionMarker(content);
-
-            var title = UiKit.Label(content, "", UiTheme.Text.Body, TextAlignmentOptions.TopLeft);
-            UiKit.Anchor(title.rectTransform, new Vector2(0, 0.5f), new Vector2(1, 1), new Vector2(8, 0), new Vector2(0, 0));
-            title.enableWordWrapping = false;
-            title.overflowMode = TextOverflowModes.Ellipsis;
-
-            var sub = UiKit.Label(content, "", UiTheme.Text.Caption, TextAlignmentOptions.BottomLeft, UiTheme.TextSecondary);
-            UiKit.Anchor(sub.rectTransform, new Vector2(0, 0), new Vector2(1, 0.5f), new Vector2(8, 0), new Vector2(0, 0));
-            sub.enableWordWrapping = false;
-            sub.overflowMode = TextOverflowModes.Ellipsis;
-
-            var row = btn.gameObject.AddComponent<UiRow>();
-            row.button = btn;
-            row.content = content;
-            row.title = title;
-            row.subtitle = sub;
-            row.marker = marker;
-            return row;
-        }
+        /// <summary>A map card: the set's cover art, with title + subtitle (creator · diff count · star span · ✓ owned) over it.</summary>
+        public static UiRow DefaultSetRow(Transform parent) => UiMapCard.Build(parent);
 
         /// <summary>A difficulty row: one line of stars + name + glance metadata.</summary>
         public static UiRow DefaultDiffRow(Transform parent)
@@ -64,23 +41,8 @@ namespace OsuUnity.UI
             return row;
         }
 
-        /// <summary>
-        /// The thin accent bar marking persistent selection on a row's left edge. Separate from the row fill
-        /// because <see cref="UiInteractive"/> re-tints that on hover — selection must survive the mouse
-        /// passing over a different row. Disabled by default.
-        /// </summary>
-        public static Image SelectionMarker(Transform content)
-        {
-            var r = UiKit.NewRect("SelMarker", content);
-            UiKit.Anchor(r, new Vector2(0, 0), new Vector2(0, 1), new Vector2(-6, 3), new Vector2(-2, -3));
-            var img = r.gameObject.AddComponent<Image>();
-            img.sprite = UiTheme.RoundedRect(UiTheme.RadiusSM);
-            img.type = Image.Type.Sliced;
-            img.color = UiTheme.Accent;
-            img.raycastTarget = false;
-            img.enabled = false;
-            return img;
-        }
+        /// <summary>The row's left-edge selection accent — see <see cref="UiMapCard.SelectionMarker"/>.</summary>
+        public static Image SelectionMarker(Transform content) => UiMapCard.SelectionMarker(content);
 
         /// <summary>
         /// A masked vertical <see cref="ScrollRect"/> filling <paramref name="parent"/>, returning the content

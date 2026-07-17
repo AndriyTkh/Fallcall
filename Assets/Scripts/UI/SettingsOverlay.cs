@@ -19,8 +19,8 @@ namespace OsuUnity.UI
     ///
     /// Self-bootstraps (no scene wiring) and persists via <see cref="DontDestroyOnLoad"/>, so it stays
     /// out of <see cref="Bootstrap"/>'s file (owned by U3). Built entirely from the U1 <see cref="UiKit"/>.
-    /// The legacy IMGUI pause-menu settings (`GameManager.DrawPauseMenu`) stay for now — retiring them is
-    /// a later, separate migration (PLAN note).
+    /// This is the <i>only</i> settings surface: the pause menu's IMGUI settings window is gone, and
+    /// <see cref="PauseMenu"/> is three routes plus a pointer to the Ctrl+O shortcut.
     /// </summary>
     public sealed class SettingsOverlay : MonoBehaviour
     {
@@ -39,6 +39,13 @@ namespace OsuUnity.UI
 
         /// <summary>Open the overlay from anywhere (also wired to the menu's Settings route).</summary>
         public static void OpenStatic() { if (_instance != null) _instance.Open(); }
+
+        /// <summary>
+        /// True while the overlay is up. Surfaces underneath check this to stand down: the overlay owns
+        /// the keyboard while open (it keeps a text field focused), and it outranks every other canvas,
+        /// so anything below it must neither read keys nor paint over it (see <see cref="GameManager"/>).
+        /// </summary>
+        public static bool IsOpen => _instance != null && _instance._open;
 
         private sealed class Entry
         {
@@ -130,6 +137,9 @@ namespace OsuUnity.UI
                 else if (Input.GetKeyDown(KeyCode.Escape))
                 {
                     Close();
+                    // Close() drops the text focus that was keeping the shortcuts below us down, so claim
+                    // this Esc or the screen we just uncovered reads it too (main screen → Quit).
+                    UiInput.Consume();
                 }
                 else
                 {
@@ -281,6 +291,7 @@ namespace OsuUnity.UI
                 RefreshBindLabel(_rebindLabel, _rebinding);
                 SetStatus("Rebind cancelled");
                 _rebinding = null; _rebindLabel = null;
+                UiInput.Consume();   // cancelling a rebind must not also reach the menus below
                 return;
             }
             if (!Input.anyKeyDown) return;
@@ -335,7 +346,7 @@ namespace OsuUnity.UI
 
         private void Build()
         {
-            var canvas = UiKit.CreateCanvas("SettingsOverlayCanvas", sortOrder: 200);
+            var canvas = UiKit.CreateCanvas("SettingsOverlayCanvas", Util.RenderOrder.CanvasSettings);
             _root = canvas.gameObject;
             var rootRect = _root.GetComponent<RectTransform>();
 
@@ -442,11 +453,19 @@ namespace OsuUnity.UI
         {
             // 0 — Gameplay
             Header(0);
+            AddToggle(0, "Autoplay (map plays itself)", true, false, () => GameSettings.Autoplay, v => GameSettings.Autoplay = v);
             AddSlider(0, "Follow-point size", false, 0.3f, 3f, 1f, () => GameSettings.FollowPointScale, v => GameSettings.FollowPointScale = v);
             AddToggle(0, "Follow points", true, true, () => GameSettings.ShowFollowPoints, v => GameSettings.ShowFollowPoints = v);
+            AddToggle(0, "Default follow-point arrow", true, false, () => GameSettings.DefaultFollowPoint, v => GameSettings.DefaultFollowPoint = v);
             AddSlider(0, "Cursor size", true, 0.5f, 2f, 1f, () => GameSettings.CursorSize, v => GameSettings.CursorSize = v);
             AddSlider(0, "Cursor hitbox (osu! px)", true, 0f, 3f, 1f, () => GameSettings.CursorHitboxOsu, v => GameSettings.CursorHitboxOsu = v);
-            AddSlider(0, "Ortho2D camera aggressiveness", true, 0f, 1f, 0.3f, () => GameSettings.OrthoAggressiveness, v => GameSettings.OrthoAggressiveness = v);
+            AddToggle(0, "Cursor trail", false, true, () => GameSettings.CursorTrail, v => GameSettings.CursorTrail = v);
+            AddSlider(0, "Cursor trail size", false, 0.2f, 2f, 1f, () => GameSettings.CursorTrailSize, v => GameSettings.CursorTrailSize = v);
+            AddSlider(0, "Cursor trail length", false, 0.1f, 3f, 1f, () => GameSettings.CursorTrailLength, v => GameSettings.CursorTrailLength = v);
+            AddSlider(0, "Skip: shortest gap shown (s)", false, 2f, 20f, 5f,
+                      () => GameSettings.BreakMinGapMs / 1000f, v => GameSettings.BreakMinGapMs = v * 1000f, "0.0");
+            AddSlider(0, "Skip: lead before next note (s)", false, 0.25f, 4f, 2f,
+                      () => GameSettings.BreakSkipLeadMs / 1000f, v => GameSettings.BreakSkipLeadMs = v * 1000f, "0.00");
             AddMode(0);
 
             // 1 — Visuals / Camera
@@ -463,6 +482,17 @@ namespace OsuUnity.UI
             AddSlider(1, "Falling radius", false, 3f, 15f, 7f, () => GameSettings.FallingRadius, v => GameSettings.FallingRadius = v, "0.0");
             AddSlider(1, "Falling max tilt°", false, 0f, 45f, 18f, () => GameSettings.FallingMaxTiltDeg, v => GameSettings.FallingMaxTiltDeg = v, "0");
             AddSlider(1, "Falling zoom", false, 0.5f, 1.5f, 0.9f, () => GameSettings.FallingZoom, v => GameSettings.FallingZoom = v);
+
+            // Ortho2D dynamic click-group zoom. These were the pause menu's IMGUI sliders; the pause menu
+            // is three routes now (docs/UI-DESIGN §1.3) and settings live only here.
+            AddToggle(1, "Ortho2D: dynamic click-group zoom", false, true, () => GameSettings.OrthoZoom, v => GameSettings.OrthoZoom = v);
+            AddSlider(1, "Ortho2D: camera smoothing", false, 0.02f, 1f, 0.22f, () => GameSettings.OrthoZoomSmooth, v => GameSettings.OrthoZoomSmooth = v);
+            AddSlider(1, "Ortho2D: zoom margin", false, 0f, 6f, 1.6f, () => GameSettings.OrthoZoomMargin, v => GameSettings.OrthoZoomMargin = v, "0.0");
+            AddSlider(1, "Ortho2D: pan overshoot", false, 0f, 0.6f, 0f, () => GameSettings.OrthoOvershoot, v => GameSettings.OrthoOvershoot = v);
+            AddSlider(1, "Ortho2D: kiai snap", false, 0.1f, 1f, 0.5f, () => GameSettings.OrthoKiaiSmoothMul, v => GameSettings.OrthoKiaiSmoothMul = v);
+            AddSlider(1, "Ortho2D: kiai zoom", false, 0.5f, 1f, 0.82f, () => GameSettings.OrthoKiaiZoomMul, v => GameSettings.OrthoKiaiZoomMul = v);
+            AddSlider(1, "Ortho2D: lookahead (ms)", true, 0f, 1500f, 400f, () => GameSettings.OrthoLookaheadMs, v => GameSettings.OrthoLookaheadMs = v, "0");
+            AddSlider(1, "Ortho2D: grouping aggressiveness", true, 0f, 1f, 0.3f, () => GameSettings.OrthoAggressiveness, v => GameSettings.OrthoAggressiveness = v);
 
             // 2 — Audio
             Header(2);

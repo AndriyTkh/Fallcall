@@ -1,9 +1,12 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using OsuUnity.Gameplay;
+using OsuUnity.Util;
 using UnityEngine;
 using UnityEngine.Networking;
+using Debug = UnityEngine.Debug;
 
 // INDEX: Map browser media — streams the ppy audio demo (Ogg/Vorbis despite the .mp3 URL) and fetches set covers, both debounced + guarded against a stale response landing after the player moved on (U6).
 namespace OsuUnity.UI
@@ -79,9 +82,13 @@ namespace OsuUnity.UI
             if (token != _token) yield break;
 
             // OGGVORBIS, not MPEG: b.ppy.sh serves Vorbis under the .mp3 extension (docs/osu-api.md §1).
-            using var req = UnityWebRequestMultimedia.GetAudioClip(BeatmapDownloader.PreviewUrl(setId), AudioType.OGGVORBIS);
+            string url = BeatmapDownloader.PreviewUrl(setId);
+            using var req = UnityWebRequestMultimedia.GetAudioClip(url, AudioType.OGGVORBIS);
             if (req.downloadHandler is DownloadHandlerAudioClip dh) dh.streamAudio = true;
+            ApiLog.Begin("preview", url);
+            var sw = Stopwatch.StartNew();
             yield return req.SendWebRequest();
+            ApiLog.End("preview", req, sw);
 
             if (token != _token) yield break;
             if (req.result != UnityWebRequest.Result.Success)
@@ -110,8 +117,12 @@ namespace OsuUnity.UI
             yield return new WaitForSeconds(debounce);
             if (token != _token) yield break;
 
-            using var req = UnityWebRequestTexture.GetTexture(BeatmapDownloader.CoverUrl(setId));
+            string url = BeatmapDownloader.CoverUrl(setId);
+            using var req = UnityWebRequestTexture.GetTexture(url);
+            ApiLog.Begin("cover", url);
+            var sw = Stopwatch.StartNew();
             yield return req.SendWebRequest();
+            ApiLog.End("cover", req, sw);
             if (token != _token || req.result != UnityWebRequest.Result.Success) yield break;
 
             var tex = DownloadHandlerTexture.GetContent(req);
