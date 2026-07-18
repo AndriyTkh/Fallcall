@@ -15,9 +15,9 @@ design vision.
 2. **`PLAN.md`** — current progress + **the parallel-agent task board**. Read at session
    start, update at session end (context is reset often to save tokens).
 3. **`INDEX.md`** — auto-generated per-file map of `Assets/Scripts`.
-4. **`docs/OPTIMIZATION.md`** — how to optimize the game (pooling, managers, batching).
+4. **`docs/guide-optimization.md`** — how to optimize the game (pooling, managers, batching).
 5. **`docs/osu-leniency.md`** — where gameplay must match real osu!/osu!lazer.
-6. **`docs/UI-DESIGN.md`** — UI & game design principles. Binding for any menu, HUD, or
+6. **`docs/guide-ui-design.md`** — UI & game design principles. Binding for any menu, HUD, or
    interaction work; includes a checklist for new UI elements.
 
 ## "Continue the work" (parallel agents)
@@ -72,7 +72,7 @@ drawables.
 
 ## Game & UI design
 
-All UI/UX and game-feel decisions follow **`docs/UI-DESIGN.md`** (osu!lazer is the
+All UI/UX and game-feel decisions follow **`docs/guide-ui-design.md`** (osu!lazer is the
 reference client). Priority order when principles conflict: **gameplay first** (never
 obstruct the playfield or move the camera from UI) → contrast/affordance → single-function
 clarity → persistent navigation (toolbar + shortcut + main-screen route) → keyboard-only

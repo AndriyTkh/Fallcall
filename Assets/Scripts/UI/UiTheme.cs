@@ -8,7 +8,7 @@ namespace OsuUnity.UI
 {
     /// <summary>
     /// Fallcall's own visual language for screen-space UI (menus, settings, song select) — the
-    /// design-token layer the whole <see cref="UiKit"/> draws from. Per <c>docs/UI-DESIGN.md</c> §0,
+    /// design-token layer the whole <see cref="UiKit"/> draws from. Per <c>docs/guide-ui-design.md</c> §0,
     /// this is deliberately <b>not</b> osu!'s look: a neutral grey/blue placeholder palette (real art
     /// direction is decided later against complete layouts, see PLAN.md open questions) tuned for the
     /// falling-geometric theme — contrast-first and colorblind-safe (never encode meaning by hue alone).

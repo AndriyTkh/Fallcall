@@ -26,9 +26,14 @@ namespace OsuUnity.Beatmaps
         public static double FadeIn(double ar) => DifficultyRange(ar, 1200, 800, 300);
 
         // Hit windows (ms) measured from the perfect hit time.
-        public static double Hit300Window(double od) => 80 - 6 * od;
-        public static double Hit100Window(double od) => 140 - 8 * od;
-        public static double Hit50Window(double od) => 200 - 10 * od;
+        // osu!lazer OsuHitWindows.SetDifficulty stores each window as
+        // Math.Floor(DifficultyRange(...)) - 0.5, reproducing osu!stable's X.5 - k*OD
+        // integer boundaries. For the osu! ruleset DifficultyRange is linear, so the raw
+        // value equals 80/140/200 - k*OD; the Floor - 0.5 is what makes it match lazer.
+        // JudgeTiming compares |delta| <= window (lazer HitWindows.ResultFor uses <=).
+        public static double Hit300Window(double od) => System.Math.Floor(80 - 6 * od) - 0.5;
+        public static double Hit100Window(double od) => System.Math.Floor(140 - 8 * od) - 0.5;
+        public static double Hit50Window(double od) => System.Math.Floor(200 - 10 * od) - 0.5;
 
         /// <summary>Required full spins for a spinner (osu! classic approximation, spins per second by OD).</summary>
         public static double SpinsPerSecond(double od) => DifficultyRange(od, 3, 5, 7.5);

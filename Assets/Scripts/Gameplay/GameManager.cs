@@ -37,6 +37,8 @@ namespace OsuUnity.Gameplay
         private int _spawnIndex;
         private bool _running;
         private bool _finished;
+        private bool _saved;       // this session's result already written to LocalScoreStore (double-submit guard)
+        private bool _failed;      // HP hit 0 while No-Fail was off — session stopped, fail screen up
         private bool _started;
         private bool _paused;
         private GUIStyle _style, _bigStyle, _centerStyle;
@@ -52,7 +54,7 @@ namespace OsuUnity.Gameplay
 
             // Built before BuildScene: the hit-sound player subscribes to OnComboBreak in there.
             _score = new ScoreProcessor();
-            _score.Configure(map.Difficulty.HPDrainRate);
+            _score.Configure(map);
 
             // Reserve the hit-object sorting band for this map before anything that sits above it is
             // built — the cursor reads its order in Init, and the band's height scales with the map.
@@ -176,7 +178,7 @@ namespace OsuUnity.Gameplay
             // search field (A/S/D = hit, R = restart, Space = skip) would also play the map.
             if (SettingsOverlay.IsOpen)
             {
-                if (!_paused && !_finished) TogglePause();
+                if (!_paused && !_finished && !_failed) TogglePause();
                 return;
             }
             // Its Esc-to-close claims the press, but script execution order between the two Updates is
@@ -185,7 +187,9 @@ namespace OsuUnity.Gameplay
 
             if (Input.GetKeyDown(KeyCode.Escape))
             {
-                if (_finished) { ExitToMenu(); return; }
+                // Results and fail screens both send Esc to the menu (like their [Menu] button); mid-play
+                // Esc pauses. R restarts from anywhere, including both end screens.
+                if (_finished || _failed) { ExitToMenu(); return; }
                 TogglePause();
                 return;
             }
@@ -197,6 +201,7 @@ namespace OsuUnity.Gameplay
             double time = _clock.TimeMs;
             _breaks?.Tick(time);   // may seek via SkipTo, so re-read the clock before spawning
             time = _clock.TimeMs;
+            _score.UpdateDrain(time);   // osu! passive HP drain (no-op in breaks / before first object / when paused)
             _video?.Tick(time);
             _viewMode?.TickView(time);   // Ortho2D dynamic click-group zoom (no-op in other modes)
             _followPoints?.Tick(time);   // fade/slide the guide arrows toward upcoming objects
@@ -240,6 +245,18 @@ namespace OsuUnity.Gameplay
                 }
             }
 
+            // Fail: HP hit 0 during play. No-Fail (osu!'s NF mod) gates only this *reaction* — HP still
+            // drained to 0, but the session keeps playing to the end and the fail screen never shows.
+            if (_score.Failed && !GameSettings.NoFail && !_finished && !_failed)
+            {
+                _failed = true;
+                _running = false;
+                _clock.Pause();          // stops the music (mirrors pause) — the run is over
+                _video?.SetPaused(true);
+                SetLook(false);          // drop first-person look + unlock the mouse for the fail buttons
+                return;
+            }
+
             // End condition: all spawned, none active, audio done (or past last object).
             bool allSpawned = _spawnIndex >= _map.HitObjects.Count;
             if (allSpawned && _active.Count == 0 && !_finished)
@@ -248,6 +265,7 @@ namespace OsuUnity.Gameplay
                 {
                     _finished = true;
                     _running = false;
+                    SaveResult();   // completed play → persist to local history (once per session)
                 }
             }
         }
@@ -269,6 +287,31 @@ namespace OsuUnity.Gameplay
 
             _clock.Seek(target);
             _video?.Tick(target);
+        }
+
+        // Persists this session's final result to the local score history. Only ever called from the
+        // FINISH path (a completed play); the guard makes it idempotent so a re-entrant finish frame or a
+        // future extra call can't double-write. Fail/restart/quit-before-finish never reach here.
+        private void SaveResult()
+        {
+            if (_saved || _score == null || _map == null) return;
+            _saved = true;
+
+            LocalScoreStore.Submit(new ScoreRecord
+            {
+                MapKey = LocalScoreStore.KeyFor(_map),
+                TimestampUtc = DateTime.UtcNow.ToString("o"),
+                Score = _score.Score,
+                Accuracy = _score.Accuracy,
+                MaxCombo = _score.MaxCombo,
+                Count300 = _score.Count300,
+                Count100 = _score.Count100,
+                Count50 = _score.Count50,
+                CountMiss = _score.CountMiss,
+                Rank = _score.RankString(),
+                NoFail = GameSettings.NoFail,
+                Autoplay = GameSettings.Autoplay,
+            });
         }
 
         private int LastObjectEnd()
@@ -356,6 +399,8 @@ namespace OsuUnity.Gameplay
             _running = false;
             _started = false;
             _finished = false;
+            _saved = false;
+            _failed = false;
             _paused = false;
             _spawnIndex = 0;
             _breaks = null;   // rebuilt per session; its OnSkip closes over this manager
@@ -430,12 +475,13 @@ namespace OsuUnity.Gameplay
             if (_paused || SettingsOverlay.IsOpen) return;
 
             DrawHud();
-            if (!_finished) _breaks?.Draw(_clock.TimeMs);
+            if (!_finished && !_failed) _breaks?.Draw(_clock.TimeMs);
 
             GUI.Label(new Rect(20, Screen.height - 52, 700, 24),
                 "[A]/[S]/[D] or click to hit   •   [Space] skip   •   [R] restart   •   [Esc] pause   •   [Ctrl+O] settings", _style);
 
             if (_finished) DrawResults();
+            if (_failed) DrawFail();
         }
 
         // Draws score / accuracy / combo / health. Uses the skin's dedicated HUD fonts + scorebar when
@@ -518,6 +564,30 @@ namespace OsuUnity.Gameplay
             Line($"Max Combo: {_score.MaxCombo}x");
             Line($"300 / 100 / 50 / X:");
             Line($"   {_score.Count300} / {_score.Count100} / {_score.Count50} / {_score.CountMiss}");
+
+            if (GUI.Button(new Rect(r.x + 40, r.y + bh - 56, 180, 36), "Retry [R]")) Restart();
+            if (GUI.Button(new Rect(r.x + bw - 220, r.y + bh - 56, 180, 36), "Menu [Esc]")) ExitToMenu();
+        }
+
+        // osu!-style fail screen: the whole view dims and "Failed" sits centred over the two routes
+        // (Retry [R] / Menu [Esc]). Mirrors DrawResults' panel + button layout and reuses the same
+        // session actions; keys are wired in Update (R restart, Esc menu) exactly as on results.
+        private void DrawFail()
+        {
+            // Full-screen red-black wash — the run is over, so obstructing the playfield is fine here
+            // (§1.1 only protects *active* play).
+            GUI.color = new Color(0.25f, 0f, 0f, 0.72f);
+            GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), Texture2D.whiteTexture);
+            GUI.color = Color.white;
+
+            float bw = 460, bh = 220;
+            var r = new Rect((Screen.width - bw) / 2, (Screen.height - bh) / 2, bw, bh);
+            GUI.color = new Color(0, 0, 0, 0.8f);
+            GUI.DrawTexture(r, Texture2D.whiteTexture);
+            GUI.color = Color.white;
+
+            var failStyle = new GUIStyle(_centerStyle) { fontSize = 46 };
+            GUI.Label(new Rect(r.x, r.y + 36, bw, 60), "Failed", failStyle);
 
             if (GUI.Button(new Rect(r.x + 40, r.y + bh - 56, 180, 36), "Retry [R]")) Restart();
             if (GUI.Button(new Rect(r.x + bw - 220, r.y + bh - 56, 180, 36), "Menu [Esc]")) ExitToMenu();

@@ -170,7 +170,7 @@ beatmap. Sidecar keeps the original untouched and the hash stable.
 ## 6. Code architecture (namespaces under `Assets/Scripts`)
 
 Full per-file table: **`INDEX.md`** (auto-generated).
-Performance playbook (pooling, batching, profiling): **`docs/OPTIMIZATION.md`**.
+Performance playbook (pooling, batching, profiling): **`docs/guide-optimization.md`**.
 osu! faithfulness / leniency spec (where gameplay must match real osu!): **`docs/osu-leniency.md`**.
 
 - **`Beatmaps/`** — pure osu! data + math. `.osu` parsing, difficulty formulas, slider
@@ -205,7 +205,7 @@ parameters should be added to these two surfaces rather than hardcoded.
 
 ## 8. UI & game-feel vision
 
-Full principles + the new-element checklist live in **`docs/UI-DESIGN.md`**. The vision in
+Full principles + the new-element checklist live in **`docs/guide-ui-design.md`**. The vision in
 brief:
 
 - **Gameplay first.** UI, HUD, and effects never obstruct the playfield, add clutter, or move
@@ -216,7 +216,7 @@ brief:
   we adopt its interaction **principles** (settings openable anywhere, live-apply, search-as-
   you-type, card carousel, per-setting reset, keyboard-first). We do **not** copy its **look**:
   Fallcall has its own visual language built to express the falling-geometric-space theme.
-  Form is ours; proven function is fair game. (This form-vs-function split is `UI-DESIGN.md` §0.)
+  Form is ours; proven function is fair game. (This form-vs-function split is `guide-ui-design.md` §0.)
 - **Contrast, single-function clarity, persistent navigation, keyboard-first accessibility** are
   the other pillars — osu! is often played mouseless, so full keyboard operation is required.
 - Every UI tunable is a **setting** (§7), same testing-first rule as the rest of the project.

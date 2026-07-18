@@ -1,4 +1,5 @@
 using System;
+using OsuUnity.Beatmaps;
 using UnityEngine;
 
 namespace OsuUnity.Gameplay
@@ -39,15 +40,39 @@ namespace OsuUnity.Gameplay
         /// <summary>Combo must exceed this to make a break audible (osu!lazer ComboEffects).</summary>
         public const int ComboBreakThreshold = 20;
 
-        private double _hpDrain;    // per-miss drain, scaled by HP setting
-        private double _hpRecover;  // per-hit recovery
+        // osu!lazer HP model: fixed per-judgement graph + continuous passive drain, calibrated so a
+        // perfect play bottoms out near the HP-drain-rate target. See HealthProcessor.
+        private readonly HealthProcessor _health = new HealthProcessor();
+        private double _lastDrainTime;   // last song time (ms) UpdateDrain saw
+        private bool _drainStarted;      // set once song time reaches the first object
 
-        public void Configure(float hpDrainRate)
+        public void Configure(Beatmap map)
         {
-            // Higher HP -> harsher misses, smaller recovery. Tuned for a forgiving-but-real feel.
-            _hpDrain = 0.05 + 0.02 * hpDrainRate;
-            _hpRecover = 0.06 - 0.003 * hpDrainRate;
-            if (_hpRecover < 0.01) _hpRecover = 0.01;
+            _health.Configure(map);
+            _lastDrainTime = _health.DrainStartTime;
+            _drainStarted = false;
+        }
+
+        /// <summary>
+        /// Per-frame passive drain. GameManager calls this each active frame with the current song time.
+        /// No-op before the first object, during breaks, and while paused (the caller skips paused frames).
+        /// Sets <see cref="Failed"/> if health reaches 0.
+        /// </summary>
+        public void UpdateDrain(double timeMs)
+        {
+            if (Failed) return;
+
+            // Hold the clock at the drain-start time until the first object, so no drain accrues in the intro.
+            if (!_drainStarted)
+            {
+                if (timeMs < _health.DrainStartTime) { _lastDrainTime = _health.DrainStartTime; return; }
+                _drainStarted = true;
+                _lastDrainTime = _health.DrainStartTime;
+            }
+
+            double drop = _health.DrainDelta(_lastDrainTime, timeMs);
+            _lastDrainTime = timeMs;
+            if (drop > 0) ChangeHp(-drop);
         }
 
         /// <summary>Total number of accuracy-bearing hits seen so far.</summary>
@@ -88,7 +113,8 @@ namespace OsuUnity.Gameplay
                     Combo = 0;
                     if (audible) OnComboBreak?.Invoke();
                 }
-                ChangeHp(-_hpDrain);
+                // HP graph: full-circle miss vs. nested (tick/repeat) miss is inferred from affectsAccuracy.
+                ChangeHp(_health.HealthIncreaseFor(Judgement.Miss, affectsAccuracy));
             }
             else
             {
@@ -101,11 +127,7 @@ namespace OsuUnity.Gameplay
                 long comboBonus = (long)(baseValue * Math.Max(0, Combo - 1) * 0.04);
                 Score += baseValue + comboBonus;
 
-                double recover = j == Judgement.Great ? _hpRecover
-                               : j == Judgement.Ok ? _hpRecover * 0.5
-                               : j == Judgement.Meh ? _hpRecover * 0.2
-                               : _hpRecover * 0.1; // ticks/bonus
-                ChangeHp(recover);
+                ChangeHp(_health.HealthIncreaseFor(j, affectsAccuracy));
             }
         }
 

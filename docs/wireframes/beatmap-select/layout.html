@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Beatmap Select — layout</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  /* ---- placeholder palette (greys/blue). Real accent = a player setting. ---- */
+  :root{
+    --bg:#0e1116; --bg2:#0b0e13; --panel:#1a1f29; --panel2:#141922;
+    --line:#2b323f; --line2:#3a4353; --ink:#e6ebf2; --muted:#8b97a8; --faint:#6b7787;
+    --accent:#5b8bd0; --accent-soft:#5b8bd022; --accent-line:#5b8bd066;
+    --ok:#4a9a5e; --warn:#d0b45b; --hot:#d07a5b;
+    --mono:ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,monospace;
+  }
+  body{background:var(--bg);color:var(--ink)}
+
+  /* viewer sync hooks — keep these two rules so viewer.html can highlight blocks */
+  [data-block]{position:relative;outline:1px solid transparent}
+  [data-block].wf-hi{outline:2px solid var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+  [data-block].wf-dim{opacity:.35}
+
+  /* ---- shared interaction language ---------------------------------------
+     Motion is slow/structural. Hover = brightness+border shift +small move.
+     Focus (keyboard) is as loud as hover — a full accent ring. ----------- */
+  .hit{transition:background .14s ease,border-color .14s ease,transform .14s ease,box-shadow .14s ease;cursor:pointer;outline:none}
+  .hit:hover{border-color:var(--accent);background:#20283440}
+  .hit:focus-visible{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .press:active{transform:translateY(1px) scale(.99)}
+
+  /* segmented control */
+  .seg{transition:background .14s,color .14s}
+  .seg[aria-pressed="true"]{background:var(--accent);color:#fff}
+  .seg[aria-pressed="false"]:hover{color:var(--ink);background:#232b39}
+
+  /* filter chips / pills */
+  .pill{transition:background .14s,border-color .14s,color .14s}
+  .pill[aria-pressed="true"]{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .pill[aria-pressed="false"]:hover{border-color:var(--accent);color:var(--ink)}
+
+  /* filters panel: slides down from the sort/filter row it is anchored to */
+  #filters{max-height:0;opacity:0;overflow:hidden;
+           transition:max-height .28s ease,opacity .2s ease,margin .28s ease;margin-top:0}
+  #filters.open{max-height:260px;opacity:1;margin-top:.5rem}
+
+  /* sort menu */
+  #sortmenu{transform-origin:top right;transform:scale(.96);opacity:0;pointer-events:none;
+            transition:transform .14s ease,opacity .14s ease}
+  #sortmenu.open{transform:scale(1);opacity:1;pointer-events:auto}
+  .sortitem[aria-checked="true"]::after{content:"●";color:var(--accent);margin-left:auto}
+
+  /* mods popover: rises from the mods button (bottom-anchored) */
+  #modspop{transform-origin:bottom left;transform:translateY(6px) scale(.98);opacity:0;pointer-events:none;
+           transition:transform .16s ease,opacity .16s ease}
+  #modspop.open{transform:translateY(0) scale(1);opacity:1;pointer-events:auto}
+
+  /* ---- carousel set + difficulty rows ------------------------------------ */
+  .setcard{transition:transform .16s ease,border-color .16s ease,background .16s ease}
+  .setcard:hover{transform:translateX(-4px);border-color:var(--accent)}
+  .setcard.sel{border-color:var(--accent);background:#1e2634}
+  /* accent spine grows on the selected set */
+  .setcard .spine{transition:width .18s ease;width:0}
+  .setcard.sel .spine{width:3px}
+
+  /* difficulty drawer expands to full content height */
+  .diffs{max-height:0;overflow:hidden;transition:max-height .26s ease,opacity .2s ease;opacity:.4}
+  .setcard.sel .diffs{max-height:640px;opacity:1}
+  .diffrow{transition:background .12s ease,transform .12s ease}
+  .diffrow:hover{background:#232b39;transform:translateX(2px)}
+  .diffrow.sel{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+  .diffrow:focus-visible{box-shadow:inset 3px 0 0 var(--accent),0 0 0 2px var(--accent-soft)}
+
+  /* star badge — brightness ramps with rating; number always shown (colorblind-safe) */
+  .star{font-variant-numeric:tabular-nums}
+
+  /* audio scrubber */
+  .scrub{appearance:none;height:4px;border-radius:2px;background:var(--line2);cursor:pointer}
+  .scrub::-webkit-slider-thumb{appearance:none;width:12px;height:12px;border-radius:50%;background:var(--accent);cursor:pointer}
+
+  /* play button — subtle lift only; menu must not compete with gameplay */
+  #play{transition:background .16s ease,transform .16s ease,box-shadow .16s ease}
+  #play:hover{background:#4a9a5e;transform:translateY(-1px);box-shadow:0 8px 24px -12px var(--ok)}
+  #play:focus-visible{box-shadow:0 0 0 3px #4a9a5e55}
+
+  /* online download affordance */
+  .dlbar{height:3px;border-radius:2px;background:var(--line2);overflow:hidden}
+  .dlbar>i{display:block;height:100%;background:var(--accent);width:38%;transition:width .3s ease}
+
+  /* live search: highlight matched substring */
+  mark{background:#5b8bd055;color:var(--ink);border-radius:2px;padding:0 1px}
+
+  .kbd{font-family:var(--mono);font-size:10px;background:var(--bg2);border:1px solid var(--line);
+       border-bottom-width:2px;border-radius:4px;padding:1px 5px;color:var(--muted)}
+  .scroll::-webkit-scrollbar{width:8px}
+  .scroll::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px}
+  .no-result{color:var(--faint)}
+</style>
+</head>
+<body class="font-sans text-[13px]">
+<div class="mx-auto max-w-[1360px] h-screen flex flex-col">
+
+  <!-- ================= TOOLBAR (persistent nav strip) ================= -->
+  <header data-block="toolbar"
+    class="flex items-center gap-1 px-3 h-9 border-b border-[var(--line)] bg-[var(--panel2)] text-[var(--muted)]">
+    <span class="font-mono text-[11px] tracking-wide text-[var(--faint)] mr-2">FALLCALL</span>
+    <button class="hit press rounded-md px-2 py-1 border border-transparent" title="Home">⌂ Home</button>
+    <button class="hit press rounded-md px-2 py-1 border border-transparent text-[var(--ink)]" title="Song select" aria-current="page">♪ Play</button>
+    <button class="hit press rounded-md px-2 py-1 border border-transparent" title="Online browser">⇩ Browse</button>
+    <button class="hit press rounded-md px-2 py-1 border border-transparent" title="Settings (Ctrl+O)">⚙ Settings</button>
+    <div class="flex-1"></div>
+    <span class="text-[11px]">guest</span>
+    <button class="hit press rounded-md px-2 py-1 border border-transparent" title="Profile">◍</button>
+    <span class="kbd ml-1" title="toggle toolbar">Ctrl T</span>
+  </header>
+
+  <!-- ================= COMMAND ROW (back / search / source / sort / filter) ===== -->
+  <div class="px-4 pt-3 flex flex-col shrink-0">
+    <div class="flex items-center gap-2">
+      <button data-block="back" class="hit press rounded-lg px-3 py-2 bg-[var(--panel)] border border-[var(--line)]">
+        ← <span class="hidden sm:inline">Main Menu</span> <span class="kbd ml-1">Esc</span>
+      </button>
+
+      <!-- source toggle: one interface, two libraries -->
+      <div data-block="source" class="flex rounded-lg overflow-hidden border border-[var(--line)]">
+        <button id="src-local"  class="seg px-3 py-2" aria-pressed="true">Local</button>
+        <button id="src-online" class="seg px-3 py-2 bg-[var(--panel)]" aria-pressed="false">Online</button>
+      </div>
+
+      <!-- type-to-search: focus is grabbed on any keypress -->
+      <div data-block="search" class="flex-1 relative">
+        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--faint)]">⌕</span>
+        <input id="q" placeholder="Type to search — title · artist · mapper"
+          class="hit w-full pl-8 pr-16 py-2 rounded-lg bg-[var(--bg2)] border border-[var(--line)] focus:border-[var(--accent)] placeholder:text-[var(--faint)]">
+        <span id="qcount" class="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-[var(--faint)]">7 sets</span>
+      </div>
+
+      <!-- sort -->
+      <div class="relative">
+        <button id="sortbtn" data-block="sort" class="hit press rounded-lg px-3 py-2 bg-[var(--panel)] border border-[var(--line)] text-[var(--muted)]"
+          aria-haspopup="true" aria-expanded="false">Sort: <b id="sortlbl" class="text-[var(--ink)]">Stars ↓</b> ▾</button>
+        <div id="sortmenu" role="menu"
+          class="absolute right-0 mt-1 w-44 rounded-lg bg-[var(--panel)] border border-[var(--line2)] p-1 z-30 shadow-xl">
+          <button class="sortitem hit flex w-full items-center rounded-md px-2 py-1.5 border border-transparent" role="menuitemradio" aria-checked="true"  data-sort="stars">Stars</button>
+          <button class="sortitem hit flex w-full items-center rounded-md px-2 py-1.5 border border-transparent" role="menuitemradio" aria-checked="false" data-sort="title">Title</button>
+          <button class="sortitem hit flex w-full items-center rounded-md px-2 py-1.5 border border-transparent" role="menuitemradio" aria-checked="false" data-sort="artist">Artist</button>
+          <button class="sortitem hit flex w-full items-center rounded-md px-2 py-1.5 border border-transparent" role="menuitemradio" aria-checked="false" data-sort="length">Length</button>
+          <button class="sortitem hit flex w-full items-center rounded-md px-2 py-1.5 border border-transparent" role="menuitemradio" aria-checked="false" data-sort="recent">Recently played</button>
+        </div>
+      </div>
+
+      <!-- filter toggle -->
+      <button id="filterbtn" class="hit press rounded-lg px-3 py-2 bg-[var(--panel)] border border-[var(--line)] text-[var(--muted)]"
+        aria-expanded="false">⚑ Filters <span id="filtcount" class="hidden ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--accent)] text-white">0</span></button>
+    </div>
+
+    <!-- filters panel (slides down, anchored to this row) -->
+    <div id="filters" data-block="filters"
+      class="rounded-lg bg-[var(--panel)] border border-[var(--line)] px-4 py-3">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <label class="flex flex-col gap-1">
+          <span class="text-[11px] uppercase tracking-wide text-[var(--faint)]">Star rating</span>
+          <div class="flex items-center gap-2">
+            <input type="range" min="0" max="10" step="0.1" value="0" class="scrub flex-1 filt" data-filt="starmin">
+            <span class="font-mono text-[11px] text-[var(--muted)]"><b id="starmin" class="text-[var(--ink)]">0.0</b>–10★</span>
+          </div>
+        </label>
+        <label class="flex flex-col gap-1">
+          <span class="text-[11px] uppercase tracking-wide text-[var(--faint)]">Length ≤</span>
+          <div class="flex items-center gap-2">
+            <input type="range" min="30" max="600" step="10" value="600" class="scrub flex-1 filt" data-filt="len">
+            <span class="font-mono text-[11px] text-[var(--muted)]"><b id="lenlbl" class="text-[var(--ink)]">any</b></span>
+          </div>
+        </label>
+        <label class="flex flex-col gap-1">
+          <span class="text-[11px] uppercase tracking-wide text-[var(--faint)]">BPM ≥</span>
+          <div class="flex items-center gap-2">
+            <input type="range" min="60" max="300" step="5" value="60" class="scrub flex-1 filt" data-filt="bpm">
+            <span class="font-mono text-[11px] text-[var(--muted)]"><b id="bpmlbl" class="text-[var(--ink)]">any</b></span>
+          </div>
+        </label>
+      </div>
+      <div class="flex items-center gap-2 mt-3">
+        <button class="pill hit rounded-full px-3 py-1 border border-[var(--line)] text-[var(--muted)]" aria-pressed="false" data-filt="video">Has video</button>
+        <button class="pill hit rounded-full px-3 py-1 border border-[var(--line)] text-[var(--muted)]" aria-pressed="false" data-filt="sb">Has storyboard</button>
+        <div class="flex-1"></div>
+        <button id="filtreset" class="hit press rounded-md px-3 py-1 text-[var(--faint)] hover:text-[var(--ink)] border border-transparent">Reset filters</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MAIN: detail (left) + carousel (right) ================= -->
+  <main class="flex-1 min-h-0 px-4 py-3 grid grid-cols-[1fr_400px] gap-3">
+
+    <!-- LEFT: selected map detail + leaderboard -->
+    <section class="flex flex-col gap-3 min-h-0">
+
+      <!-- banner: worst-case-art safe (scrim under all text) -->
+      <div data-block="banner"
+        class="relative h-44 rounded-xl overflow-hidden border border-[var(--line)]
+               bg-[linear-gradient(135deg,#243040,#12151b)]">
+        <!-- content scrim: guarantees legibility over any artwork -->
+        <div class="absolute inset-0 bg-[linear-gradient(0deg,#0b0e13ee,transparent_60%)]"></div>
+        <span class="absolute top-2 left-3 text-[11px] font-mono text-[var(--faint)]">bg / video preview</span>
+        <div class="absolute top-2 right-3 flex gap-1 text-[10px]">
+          <span class="px-1.5 py-0.5 rounded bg-[#0b0e13aa] border border-[var(--line)]">▶ video</span>
+          <span class="px-1.5 py-0.5 rounded bg-[#0b0e13aa] border border-[var(--line)]">✦ storyboard</span>
+        </div>
+        <!-- title sits ON the banner, always over the scrim -->
+        <div data-block="title" class="absolute left-4 bottom-3 right-4">
+          <h1 id="d-title" class="text-2xl font-semibold leading-tight drop-shadow">Fall Through Space</h1>
+          <p id="d-meta" class="text-[var(--muted)] text-xs mt-0.5">Nova Collective &nbsp;·&nbsp; mapped by andriy</p>
+        </div>
+      </div>
+
+      <!-- diff name + star + rank status -->
+      <div class="flex items-center gap-2 flex-wrap">
+        <span data-block="stars" id="d-star"
+          class="star px-2.5 py-1 rounded-md bg-[#22303f] text-[var(--accent)] text-xs font-semibold border border-[var(--accent-line)]">★ 5.82</span>
+        <span id="d-diff" class="px-2.5 py-1 rounded-md bg-[var(--panel)] border border-[var(--line)] text-xs">Expert</span>
+        <span class="px-2 py-1 rounded-md text-[10px] uppercase tracking-wide text-[var(--warn)] border border-[var(--line)]">graveyard</span>
+        <span class="ml-auto text-[11px] text-[var(--faint)]">♥ 8,412</span>
+      </div>
+
+      <!-- osu!-parity stats (subordinate: read on decision, not on scan) -->
+      <div data-block="stats" class="grid grid-cols-6 gap-2">
+        <div class="rounded-lg bg-[var(--panel)] border border-[var(--line)] p-2 text-center"><div class="text-[var(--faint)] text-[10px] uppercase">Length</div><div id="s-len" class="text-sm font-mono">2:47</div></div>
+        <div class="rounded-lg bg-[var(--panel)] border border-[var(--line)] p-2 text-center"><div class="text-[var(--faint)] text-[10px] uppercase">BPM</div><div id="s-bpm" class="text-sm font-mono">174</div></div>
+        <div class="rounded-lg bg-[var(--panel)] border border-[var(--line)] p-2 text-center"><div class="text-[var(--faint)] text-[10px] uppercase">CS</div><div id="s-cs" class="text-sm font-mono">4.2</div></div>
+        <div class="rounded-lg bg-[var(--panel)] border border-[var(--line)] p-2 text-center"><div class="text-[var(--faint)] text-[10px] uppercase">AR</div><div id="s-ar" class="text-sm font-mono">9.3</div></div>
+        <div class="rounded-lg bg-[var(--panel)] border border-[var(--line)] p-2 text-center"><div class="text-[var(--faint)] text-[10px] uppercase">OD</div><div id="s-od" class="text-sm font-mono">8.5</div></div>
+        <div class="rounded-lg bg-[var(--panel)] border border-[var(--line)] p-2 text-center"><div class="text-[var(--faint)] text-[10px] uppercase">HP</div><div id="s-hp" class="text-sm font-mono">6.0</div></div>
+      </div>
+
+      <!-- leaderboard -->
+      <div data-block="leaderboard" class="rounded-xl bg-[var(--panel)] border border-[var(--line)] p-3 flex-1 min-h-0 flex flex-col">
+        <div class="flex items-center justify-between mb-2 shrink-0">
+          <h2 class="text-sm font-semibold">Leaderboard</h2>
+          <div class="flex rounded-md overflow-hidden border border-[var(--line)] text-[11px]">
+            <button class="seg px-2 py-0.5" aria-pressed="true">Local</button>
+            <button class="seg px-2 py-0.5 bg-[var(--panel2)] text-[var(--faint)]" aria-pressed="false" title="requires account">Global</button>
+          </div>
+        </div>
+        <ol class="flex flex-col gap-1 overflow-auto scroll min-h-0">
+          <li class="hit flex items-center gap-2 px-2 py-1.5 rounded-lg bg-[var(--accent-soft)] border border-[var(--accent-line)]">
+            <span class="w-4 text-center text-[var(--faint)]">1</span><span class="flex-1">sergtkh</span>
+            <span class="font-mono text-[var(--muted)]">1,842,203</span><span class="text-[var(--ok)] font-semibold w-8 text-right">SS</span></li>
+          <li class="hit flex items-center gap-2 px-2 py-1.5 rounded-lg border border-transparent">
+            <span class="w-4 text-center text-[var(--faint)]">2</span><span class="flex-1">guest</span>
+            <span class="font-mono text-[var(--muted)]">1,203,556</span><span class="text-[var(--warn)] font-semibold w-8 text-right">A</span></li>
+          <li class="hit flex items-center gap-2 px-2 py-1.5 rounded-lg border border-transparent">
+            <span class="w-4 text-center text-[var(--faint)]">3</span><span class="flex-1">guest</span>
+            <span class="font-mono text-[var(--muted)]">998,120</span><span class="text-[var(--muted)] font-semibold w-8 text-right">B</span></li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- RIGHT: carousel -->
+    <aside data-block="carousel" class="flex flex-col min-h-0">
+      <div class="flex gap-1 mb-2 text-xs shrink-0">
+        <button class="pill hit rounded-full px-3 py-1 border border-[var(--line)]" aria-pressed="true"  data-status="all">All</button>
+        <button class="pill hit rounded-full px-3 py-1 border border-[var(--line)] text-[var(--muted)]" aria-pressed="false" data-status="ranked">Ranked</button>
+        <button class="pill hit rounded-full px-3 py-1 border border-[var(--line)] text-[var(--muted)]" aria-pressed="false" data-status="loved">Loved</button>
+        <div class="flex-1"></div>
+        <span id="carcount" class="self-center text-[11px] text-[var(--faint)]">7 sets · 39 diffs</span>
+      </div>
+      <div id="list" class="flex flex-col gap-2 overflow-auto scroll flex-1 min-h-0 pr-1"><!-- sets injected --></div>
+    </aside>
+  </main>
+
+  <!-- ================= FOOTER: audio · mods · random · play ================= -->
+  <footer class="shrink-0 px-4 py-2 border-t border-[var(--line)] bg-[var(--panel2)] flex items-center gap-3">
+
+    <!-- preview / music player transport -->
+    <div data-block="audio" class="flex items-center gap-2 min-w-0">
+      <button id="a-prev"  class="hit press rounded-md w-8 h-8 grid place-items-center bg-[var(--panel)] border border-[var(--line)]" title="restart preview">◀◀</button>
+      <button id="a-play"  class="hit press rounded-md w-9 h-9 grid place-items-center bg-[var(--panel)] border border-[var(--line)]" title="play / pause (Space)">⏸</button>
+      <div class="flex flex-col w-40">
+        <input type="range" min="0" max="100" value="34" class="scrub" title="seek preview">
+        <div class="flex justify-between text-[10px] text-[var(--faint)] font-mono mt-0.5"><span>0:57</span><span>2:47</span></div>
+      </div>
+      <button id="a-toggle" class="hit press rounded-md px-2 h-8 bg-[var(--panel)] border border-[var(--line)] text-[11px]" aria-pressed="true" title="song preview on/off">preview ◉</button>
+    </div>
+
+    <div class="w-px h-8 bg-[var(--line)]"></div>
+
+    <!-- mods -->
+    <div class="relative">
+      <button id="modsbtn" data-block="mods" class="hit press rounded-lg px-3 py-2 bg-[var(--panel)] border border-[var(--line)]" aria-expanded="false">
+        ◈ Mods <span id="modbadges" class="ml-1 inline-flex gap-1"></span> <span class="kbd ml-1">F1</span>
+      </button>
+      <div id="modspop" class="absolute bottom-full mb-2 left-0 w-64 rounded-lg bg-[var(--panel)] border border-[var(--line2)] p-2 z-30 shadow-xl">
+        <div class="text-[10px] uppercase tracking-wide text-[var(--faint)] px-1 mb-1">Difficulty-increase</div>
+        <div class="grid grid-cols-4 gap-1 mb-2">
+          <button class="modchip pill hit rounded-md py-2 border border-[var(--line)] text-center" aria-pressed="false" data-mod="HR">HR</button>
+          <button class="modchip pill hit rounded-md py-2 border border-[var(--line)] text-center" aria-pressed="false" data-mod="DT">DT</button>
+          <button class="modchip pill hit rounded-md py-2 border border-[var(--line)] text-center" aria-pressed="false" data-mod="HD">HD</button>
+          <button class="modchip pill hit rounded-md py-2 border border-[var(--line)] text-center" aria-pressed="false" data-mod="FL">FL</button>
+        </div>
+        <div class="text-[10px] uppercase tracking-wide text-[var(--faint)] px-1 mb-1">Difficulty-reduce</div>
+        <div class="grid grid-cols-4 gap-1">
+          <button class="modchip pill hit rounded-md py-2 border border-[var(--line)] text-center" aria-pressed="false" data-mod="EZ">EZ</button>
+          <button class="modchip pill hit rounded-md py-2 border border-[var(--line)] text-center" aria-pressed="false" data-mod="HT">HT</button>
+          <button class="modchip pill hit rounded-md py-2 border border-[var(--line)] text-center" aria-pressed="false" data-mod="NF">NF</button>
+          <button class="modchip pill hit rounded-md py-2 border border-[var(--line)] text-center" aria-pressed="false" data-mod="SD">SD</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- random -->
+    <button id="random" data-block="random" class="hit press rounded-lg px-3 py-2 bg-[var(--panel)] border border-[var(--line)]" title="random from filtered set">
+      ⚄ Random <span class="kbd ml-1">F2</span>
+    </button>
+
+    <div class="flex-1"></div>
+    <span id="playmeta" class="text-[var(--muted)] text-xs">no mods</span>
+
+    <!-- play -->
+    <button id="play" data-block="play" class="press rounded-lg px-10 py-2.5 bg-[var(--ok)] text-white font-semibold">
+      ▶ Play <span class="kbd ml-2 !text-white/80 !border-white/30">Enter</span>
+    </button>
+  </footer>
+</div>
+
+<script>
+/* ============================ data (real-shaped) ============================ */
+const SETS = [
+  { title:"Fall Through Space", artist:"Nova Collective", mapper:"andriy", fav:8412, status:"graveyard", video:true, sb:false, recent:3,
+    diffs:[
+      {n:"Beginner",         s:0.8, len:167, bpm:174, cs:2.0, ar:4.0, od:2.0, hp:2.0},
+      {n:"Normal",           s:2.4, len:167, bpm:174, cs:3.5, ar:6.0, od:5.0, hp:4.0},
+      {n:"Hard",             s:3.9, len:167, bpm:174, cs:4.0, ar:8.0, od:6.5, hp:5.0},
+      {n:"Insane",           s:4.9, len:167, bpm:174, cs:4.0, ar:9.0, od:7.5, hp:5.5},
+      {n:"Expert",           s:5.82,len:167, bpm:174, cs:4.2, ar:9.3, od:8.5, hp:6.0},
+      {n:"FALLOUT // 落下",   s:6.4, len:167, bpm:174, cs:4.4, ar:9.6, od:9.0, hp:6.5},
+    ]},
+  { title:"Blue Zenith", artist:"Hommarju", mapper:"Asphyxia", fav:203118, status:"ranked", video:false, sb:true, recent:1,
+    diffs:[
+      {n:"Light Insane",     s:4.2, len:256, bpm:200, cs:4.0, ar:9.0, od:7.0, hp:5.0},
+      {n:"Extra",            s:6.1, len:256, bpm:200, cs:4.0, ar:9.5, od:8.5, hp:6.0},
+      {n:"FOUR DIMENSIONS",  s:7.79,len:256, bpm:200, cs:4.0, ar:9.8, od:9.0, hp:5.0},
+      {n:"Sky's the limit",  s:8.6, len:256, bpm:200, cs:4.2, ar:10,  od:9.3, hp:5.5},
+      {n:"ASCENSION 9.4",    s:9.4, len:256, bpm:200, cs:4.4, ar:10.3,od:9.6, hp:6.0},
+    ]},
+  { title:"終焉のドグマ", artist:"幽閉サテライト", mapper:"Community", fav:41022, status:"loved", video:true, sb:true, recent:5,
+    diffs:Array.from({length:12},(_,i)=>({n:["Easy","Normal","Advanced","Hard","Hyper","Another","Extra","Black Another","Leggendaria","絶","無","∞"][i],
+      s:+(1.6+i*0.72).toFixed(2), len:301, bpm:182, cs:3+i*0.12, ar:5+i*0.42, od:4+i*0.42, hp:4+i*0.16})) },
+  { title:"Neon Descent", artist:"Krile", mapper:"lumi", fav:1205, status:"graveyard", video:false, sb:false, recent:8,
+    diffs:[
+      {n:"Cup",  s:1.9, len:118, bpm:145, cs:3, ar:5, od:4, hp:3},
+      {n:"Salad",s:2.7, len:118, bpm:145, cs:3.5, ar:6.5, od:5, hp:4},
+      {n:"Platter",s:3.6,len:118, bpm:145, cs:4, ar:7.5, od:6, hp:4.5},
+      {n:"Rain", s:4.8, len:118, bpm:145, cs:4, ar:8.5, od:7, hp:5},
+    ]},
+  { title:"Gravity Well", artist:"V.A.", mapper:"various", fav:9931, status:"ranked", video:true, sb:false, recent:2,
+    diffs:Array.from({length:8},(_,i)=>({n:["I","II","III","IV","V","VI","VII","VIII"][i],
+      s:+(2.1+i*0.68).toFixed(2), len:214, bpm:160, cs:3.5+i*0.1, ar:6+i*0.4, od:5+i*0.4, hp:4+i*0.2})) },
+  { title:"Cloudbreaker", artist:"Mimosa", mapper:"nube", fav:604, status:"loved", video:false, sb:true, recent:6,
+    diffs:[
+      {n:"stratus",  s:2.2, len:96, bpm:128, cs:3, ar:6, od:5, hp:4},
+      {n:"cumulus",  s:3.4, len:96, bpm:128, cs:3.5, ar:7, od:6, hp:4.5},
+      {n:"cirrus 巻雲", s:4.7, len:96, bpm:128, cs:4, ar:8.2, od:7, hp:5},
+    ]},
+  { title:"quiet.", artist:"lowercello", mapper:"still", fav:88, status:"graveyard", video:false, sb:false, recent:9,
+    diffs:[ {n:"resting", s:0.8, len:220, bpm:72, cs:2, ar:3, od:2, hp:1} ] },
+];
+
+/* ============================ state ============================ */
+const st = { q:"", status:"all", sort:"stars", online:false,
+  filt:{ starmin:0, len:600, bpm:60, video:false, sb:false },
+  mods:new Set(), setIdx:0, diffIdx:4 };
+
+const $ = s => document.querySelector(s);
+const list = $("#list");
+const fmtTime = s => `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
+const setMaxStar = set => Math.max(...set.diffs.map(d=>d.s));
+const esc = s => s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function hl(text){ if(!st.q) return esc(text); const i=text.toLowerCase().indexOf(st.q.toLowerCase());
+  if(i<0) return esc(text); return esc(text.slice(0,i))+"<mark>"+esc(text.slice(i,i+st.q.length))+"</mark>"+esc(text.slice(i+st.q.length)); }
+
+/* ---- which sets pass search + status + filters ---- */
+function visibleSets(){
+  return SETS.map((s,idx)=>({s,idx})).filter(({s})=>{
+    const hay=(s.title+" "+s.artist+" "+s.mapper).toLowerCase();
+    if(st.q && !hay.includes(st.q.toLowerCase())) return false;
+    if(st.status!=="all" && s.status!==st.status) return false;
+    if(st.filt.video && !s.video) return false;
+    if(st.filt.sb && !s.sb) return false;
+    // a set passes range filters if ANY diff qualifies
+    const ok = s.diffs.some(d=>d.s>=st.filt.starmin && d.len<=st.filt.len && d.bpm>=st.filt.bpm);
+    return ok;
+  }).sort((a,b)=>{
+    switch(st.sort){
+      case "title":  return a.s.title.localeCompare(b.s.title);
+      case "artist": return a.s.artist.localeCompare(b.s.artist);
+      case "length": return a.s.diffs[0].len - b.s.diffs[0].len;
+      case "recent": return a.s.recent - b.s.recent;
+      default:       return setMaxStar(b.s) - setMaxStar(a.s);
+    }
+  });
+}
+
+/* ---- render carousel ---- */
+function renderList(){
+  const vis = visibleSets();
+  list.innerHTML = "";
+  if(!vis.length){ list.innerHTML = `<div class="no-result text-center py-10">no maps match — <span class="kbd">Esc</span> to clear</div>`; }
+  let diffTotal=0;
+  vis.forEach(({s,idx})=>{
+    diffTotal += s.diffs.length;
+    const selected = idx===st.setIdx;
+    const card = document.createElement("div");
+    card.className = "setcard hit relative rounded-xl bg-[var(--panel)] border border-[var(--line)] overflow-hidden"+(selected?" sel":"");
+    card.tabIndex = 0; card.dataset.idx = idx;
+    const maxs = setMaxStar(s).toFixed(2);
+    const dl = st.online ? `<div class="mt-2"><div class="flex items-center justify-between text-[10px] text-[var(--muted)] mb-1"><span>⇩ downloadable</span><span>4.2 MB</span></div><div class="dlbar"><i></i></div></div>` : "";
+    card.innerHTML = `
+      <span class="spine absolute left-0 top-0 bottom-0 bg-[var(--accent)]"></span>
+      <div class="p-3 pl-4">
+        <div class="flex items-start gap-2">
+          <div class="min-w-0 flex-1">
+            <div class="font-medium truncate">${hl(s.title)}</div>
+            <div class="text-[var(--muted)] text-xs truncate">${hl(s.artist)} · ${hl(s.mapper)}</div>
+          </div>
+          <span class="star shrink-0 text-[11px] px-1.5 py-0.5 rounded bg-[#22303f] text-[var(--accent)] border border-[var(--accent-line)]">★${maxs}</span>
+        </div>
+        <div class="flex items-center gap-2 mt-1.5 text-[10px] text-[var(--faint)]">
+          <span class="uppercase tracking-wide">${s.status}</span>
+          <span>· ${s.diffs.length} diff${s.diffs.length>1?"s":""}</span>
+          ${s.video?'<span>· ▶ video</span>':''}${s.sb?'<span>· ✦ sb</span>':''}
+          <span class="ml-auto">♥ ${s.fav.toLocaleString()}</span>
+        </div>
+        ${dl}
+        <div class="diffs mt-2 flex flex-col gap-1">
+          ${s.diffs.map((d,di)=>`
+            <button class="diffrow flex items-center gap-2 rounded-md px-2 py-1.5 text-left w-full${selected&&di===st.diffIdx?' sel':''}"
+              data-set="${idx}" data-diff="${di}" tabindex="${selected?0:-1}">
+              <span class="star w-10 text-[11px] font-mono ${d.s>=6?'text-[var(--hot)]':'text-[var(--accent)]'}">★${d.s.toFixed(2)}</span>
+              <span class="flex-1 truncate text-xs">${esc(d.n)}</span>
+              <span class="text-[10px] text-[var(--faint)] font-mono">${fmtTime(d.len)} · ${d.bpm}</span>
+            </button>`).join("")}
+        </div>
+      </div>`;
+    list.appendChild(card);
+  });
+  $("#carcount").textContent = `${vis.length} set${vis.length!==1?"s":""} · ${diffTotal} diffs`;
+  $("#qcount").textContent = `${vis.length} set${vis.length!==1?"s":""}`;
+  wireCards();
+}
+
+function wireCards(){
+  list.querySelectorAll(".setcard").forEach(card=>{
+    const idx = +card.dataset.idx;
+    card.addEventListener("click", e=>{ if(e.target.closest(".diffrow")) return; selectSet(idx); });
+  });
+  list.querySelectorAll(".diffrow").forEach(row=>{
+    row.addEventListener("click", e=>{ e.stopPropagation(); selectDiff(+row.dataset.set, +row.dataset.diff); });
+  });
+}
+
+/* ---- selection updates the detail panel ---- */
+function selectSet(idx){ st.setIdx=idx; st.diffIdx=Math.min(st.diffIdx, SETS[idx].diffs.length-1); renderList(); renderDetail(); scrollSel(); }
+function selectDiff(setIdx,diffIdx){ st.setIdx=setIdx; st.diffIdx=diffIdx; renderList(); renderDetail(); }
+function scrollSel(){ const c=list.querySelector(".setcard.sel"); if(c) c.scrollIntoView({block:"nearest",behavior:"smooth"}); }
+
+function renderDetail(){
+  const s=SETS[st.setIdx], d=s.diffs[st.diffIdx];
+  $("#d-title").innerHTML = esc(s.title);
+  $("#d-meta").innerHTML = `${esc(s.artist)} &nbsp;·&nbsp; mapped by ${esc(s.mapper)}`;
+  const eff = effStars(d.s);
+  $("#d-star").textContent = `★ ${eff.toFixed(2)}`;
+  $("#d-star").style.color = eff>=6 ? "var(--hot)" : "var(--accent)";
+  $("#d-diff").textContent = d.n;
+  $("#s-len").textContent = fmtTime(st.mods.has("DT")?Math.round(d.len/1.5):st.mods.has("HT")?Math.round(d.len/0.75):d.len);
+  $("#s-bpm").textContent = Math.round(d.bpm*(st.mods.has("DT")?1.5:st.mods.has("HT")?0.75:1));
+  const hr = st.mods.has("HR")?1.4:st.mods.has("EZ")?0.5:1;
+  $("#s-cs").textContent=Math.min(10,d.cs*hr).toFixed(1);
+  $("#s-ar").textContent=Math.min(10,d.ar*hr).toFixed(1);
+  $("#s-od").textContent=Math.min(10,d.od*hr).toFixed(1);
+  $("#s-hp").textContent=Math.min(10,d.hp*hr).toFixed(1);
+}
+/* mods nudge the shown star rating (wireframe approximation) */
+function effStars(base){ let m=1; if(st.mods.has("DT"))m+=0.35; if(st.mods.has("HR"))m+=0.1; if(st.mods.has("EZ"))m-=0.15; if(st.mods.has("HT"))m-=0.3; return Math.max(0,base*m); }
+
+/* ============================ controls ============================ */
+// search — live filter + type-to-search from anywhere
+const q=$("#q");
+q.addEventListener("input", ()=>{ st.q=q.value; renderList(); });
+document.addEventListener("keydown", e=>{
+  if(e.key==="Escape"){ if(st.q){ q.value=""; st.q=""; renderList(); } closePopups(); return; }
+  // ignore when already typing in a field or using a shortcut
+  if(e.target.tagName==="INPUT"||e.metaKey||e.ctrlKey||e.altKey) return;
+  if(e.key==="ArrowDown"||e.key==="ArrowUp"){ e.preventDefault(); moveSel(e.key==="ArrowDown"?1:-1); return; }
+  if(e.key==="Enter"){ flashPlay(); return; }
+  if(e.key==="F2"){ e.preventDefault(); rollRandom(); return; }
+  if(e.key.length===1 && /\S/.test(e.key)){ q.focus(); } // type-to-search
+});
+
+function moveSel(dir){
+  const vis=visibleSets(); if(!vis.length) return;
+  const order=vis.map(v=>v.idx);
+  let p=order.indexOf(st.setIdx); p=(p+dir+order.length)%order.length;
+  selectSet(order[p]);
+}
+
+// source toggle
+$("#src-local").onclick=()=>setSource(false);
+$("#src-online").onclick=()=>setSource(true);
+function setSource(online){ st.online=online;
+  $("#src-local").setAttribute("aria-pressed",(!online));
+  $("#src-online").setAttribute("aria-pressed",(online));
+  $("#src-local").classList.toggle("bg-[var(--panel)]",online);
+  $("#src-online").classList.toggle("bg-[var(--panel)]",!online);
+  renderList();
+}
+
+// status pills
+document.querySelectorAll("[data-status]").forEach(b=>b.onclick=()=>{
+  st.status=b.dataset.status;
+  document.querySelectorAll("[data-status]").forEach(x=>{ const on=x===b; x.setAttribute("aria-pressed",on); x.classList.toggle("text-[var(--muted)]",!on); });
+  renderList();
+});
+
+// sort menu
+const sortbtn=$("#sortbtn"), sortmenu=$("#sortmenu");
+sortbtn.onclick=e=>{ e.stopPropagation(); const open=sortmenu.classList.toggle("open"); sortbtn.setAttribute("aria-expanded",open); };
+sortmenu.querySelectorAll(".sortitem").forEach(it=>it.onclick=()=>{
+  st.sort=it.dataset.sort;
+  sortmenu.querySelectorAll(".sortitem").forEach(x=>x.setAttribute("aria-checked", x===it));
+  $("#sortlbl").textContent={stars:"Stars ↓",title:"Title",artist:"Artist",length:"Length",recent:"Recently played"}[st.sort];
+  sortmenu.classList.remove("open"); renderList();
+});
+
+// filters panel
+const filters=$("#filters"), filterbtn=$("#filterbtn");
+filterbtn.onclick=()=>{ const open=filters.classList.toggle("open"); filterbtn.setAttribute("aria-expanded",open); };
+document.querySelectorAll("input.filt").forEach(r=>r.oninput=()=>{
+  const k=r.dataset.filt; st.filt[k]=+r.value;
+  if(k==="starmin") $("#starmin").textContent=(+r.value).toFixed(1);
+  if(k==="len") $("#lenlbl").textContent=(+r.value>=600?"any":fmtTime(+r.value));
+  if(k==="bpm") $("#bpmlbl").textContent=(+r.value<=60?"any":r.value);
+  updFiltCount(); renderList();
+});
+document.querySelectorAll("#filters [data-filt='video'],#filters [data-filt='sb']").forEach(b=>b.onclick=()=>{
+  const k=b.dataset.filt; st.filt[k]=!st.filt[k]; b.setAttribute("aria-pressed",st.filt[k]); updFiltCount(); renderList();
+});
+$("#filtreset").onclick=()=>{
+  st.filt={starmin:0,len:600,bpm:60,video:false,sb:false};
+  document.querySelectorAll("input.filt").forEach(r=>{ r.value=r.dataset.filt==="len"?600:r.dataset.filt==="bpm"?60:0; });
+  $("#starmin").textContent="0.0"; $("#lenlbl").textContent="any"; $("#bpmlbl").textContent="any";
+  document.querySelectorAll("#filters .pill").forEach(p=>p.setAttribute("aria-pressed","false"));
+  updFiltCount(); renderList();
+};
+function updFiltCount(){
+  let n=0; if(st.filt.starmin>0)n++; if(st.filt.len<600)n++; if(st.filt.bpm>60)n++; if(st.filt.video)n++; if(st.filt.sb)n++;
+  const c=$("#filtcount"); c.textContent=n; c.classList.toggle("hidden",n===0);
+}
+
+// mods popover
+const modsbtn=$("#modsbtn"), modspop=$("#modspop");
+modsbtn.onclick=e=>{ e.stopPropagation(); const open=modspop.classList.toggle("open"); modsbtn.setAttribute("aria-expanded",open); };
+document.querySelectorAll(".modchip").forEach(b=>b.onclick=()=>{
+  const m=b.dataset.mod; if(st.mods.has(m))st.mods.delete(m); else st.mods.add(m);
+  b.setAttribute("aria-pressed",st.mods.has(m)); renderMods(); renderDetail(); renderList();
+});
+function renderMods(){
+  const badges=[...st.mods].map(m=>`<span class="text-[10px] px-1 py-0.5 rounded bg-[var(--accent)] text-white">${m}</span>`).join("");
+  $("#modbadges").innerHTML=badges;
+  $("#playmeta").textContent = st.mods.size? [...st.mods].join(" + ") : "no mods";
+}
+
+// audio transport
+$("#a-play").onclick=function(){ this.textContent=this.textContent==="⏸"?"▶":"⏸"; };
+$("#a-toggle").onclick=function(){ const on=this.getAttribute("aria-pressed")!=="true"; this.setAttribute("aria-pressed",on); this.textContent=on?"preview ◉":"preview ○"; };
+
+// random
+$("#random").onclick=rollRandom;
+function rollRandom(){ const vis=visibleSets(); if(!vis.length)return; const pick=vis[Math.floor(Math.random()*vis.length)]; selectSet(pick.idx);
+  const c=list.querySelector(".setcard.sel"); if(c) c.animate([{outline:"2px solid var(--accent)"},{outline:"2px solid transparent"}],{duration:700}); }
+
+// play feedback
+$("#play").onclick=flashPlay;
+function flashPlay(){ const s=SETS[st.setIdx],d=s.diffs[st.diffIdx];
+  const p=$("#play"); p.animate([{transform:"scale(1)"},{transform:"scale(.96)"},{transform:"scale(1)"}],{duration:180});
+  console.log("PLAY",s.title,d.n,[...st.mods]); }
+
+// dismiss popups on outside click
+document.addEventListener("click",closePopups);
+function closePopups(){ sortmenu.classList.remove("open"); sortbtn.setAttribute("aria-expanded",false);
+  modspop.classList.remove("open"); modsbtn.setAttribute("aria-expanded",false); }
+[sortmenu,modspop].forEach(el=>el.addEventListener("click",e=>e.stopPropagation()));
+
+/* ============================ boot ============================ */
+renderList(); renderDetail(); renderMods(); updFiltCount();
+</script>
+</body>
+</html>

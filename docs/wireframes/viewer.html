@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Layout doc viewer</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body{background:#0e1116}
+  .chev{display:inline-block;transition:transform .15s}
+  .card.open .chev{transform:rotate(90deg)}
+</style>
+</head>
+<body class="text-[#e6ebf2] font-sans h-screen overflow-hidden">
+<div class="grid grid-cols-[1fr_400px] h-screen">
+
+  <!-- LEFT: live layout -->
+  <div class="flex flex-col min-h-0">
+    <div class="flex items-center gap-2 px-4 py-2 border-b border-[#2b323f] bg-[#12151b]">
+      <label class="text-xs text-[#8b97a8]">page</label>
+      <select id="pagesel" class="text-sm bg-[#0b0e13] text-[#e6ebf2] border border-[#2b323f] rounded-md px-2 py-1 outline-none focus:border-[#5b8bd0]"></select>
+      <b id="docname" class="text-sm mr-auto"></b>
+      <a id="openraw" target="_blank" class="text-xs text-[#8b97a8] hover:text-[#5b8bd0]">open layout ↗</a>
+    </div>
+    <iframe id="frame" class="flex-1 w-full border-0 bg-[#0e1116]"></iframe>
+  </div>
+
+  <!-- RIGHT: description panel -->
+  <div class="flex flex-col min-h-0 bg-[#1a1f29] border-l border-[#2b323f]">
+    <header class="p-4 border-b border-[#2b323f] flex items-start justify-between gap-2">
+      <div class="min-w-0">
+        <h1 class="text-sm font-semibold">Block descriptions</h1>
+        <p id="sub" class="text-xs text-[#8b97a8] mt-1">loading…</p>
+      </div>
+      <button id="toggleall" class="text-xs text-[#8b97a8] hover:text-[#5b8bd0] shrink-0 mt-0.5">expand all</button>
+    </header>
+    <div id="cards" class="flex-1 overflow-auto p-3 flex flex-col gap-3"></div>
+    <div class="p-3 border-t border-[#2b323f] flex gap-2">
+      <button id="export" class="flex-1 px-3 py-2 rounded-lg bg-[#5b8bd0] text-white text-sm font-medium">Export .md ↓</button>
+      <button id="reload" class="px-3 py-2 rounded-lg bg-[#12151b] border border-[#2b323f] text-sm">Reload</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const NAME = new URLSearchParams(location.search).get('doc') || 'beatmap-select';
+const layoutUrl = `${NAME}/layout.html`;
+const mdUrl = `${NAME}/notes.md`;
+document.getElementById('docname').textContent = NAME;
+document.getElementById('openraw').href = layoutUrl;
+document.getElementById('frame').src = layoutUrl;
+
+// --- page dropdown: populate from pages.json, switch via ?doc= -------------
+async function loadPages(){
+  const sel = document.getElementById('pagesel');
+  try{
+    const { pages } = await fetch('pages.json').then(r=>{ if(!r.ok) throw 0; return r.json(); });
+    for (const p of pages){
+      const o = document.createElement('option');
+      o.value = p.id; o.textContent = p.title || p.id;
+      if (p.id === NAME) o.selected = true;
+      sel.appendChild(o);
+    }
+    if (!pages.some(p=>p.id===NAME)){ // current doc missing from manifest — still show it
+      const o = document.createElement('option'); o.value=NAME; o.textContent=NAME+' (unlisted)'; o.selected=true; sel.appendChild(o);
+    }
+  }catch{
+    const o = document.createElement('option'); o.value=NAME; o.textContent=NAME; o.selected=true; sel.appendChild(o);
+    sel.disabled = true;
+  }
+  sel.addEventListener('change', ()=>{ location.search = '?doc=' + encodeURIComponent(sel.value); });
+}
+loadPages();
+
+let preamble = '';           // md text before the first ## heading
+let order = [];              // section ids in md order
+const bodies = {};           // id -> md body text
+
+// --- parse the markdown sidecar into sections keyed by heading ------------
+function parseMd(text){
+  const parts = text.split(/^## +/m);
+  preamble = parts.shift().trimEnd();
+  order = []; for (const k in bodies) delete bodies[k];
+  for (const p of parts){
+    const nl = p.indexOf('\n');
+    const id = (nl<0 ? p : p.slice(0,nl)).trim();
+    const body = (nl<0 ? '' : p.slice(nl+1)).trim();
+    order.push(id); bodies[id] = body;
+  }
+}
+
+// --- build cards, joining layout blocks <-> md sections by id -------------
+function build(){
+  const doc = document.getElementById('frame').contentDocument;
+  const els = doc ? [...doc.querySelectorAll('[data-block]')] : [];
+  const layoutIds = els.map(e=>e.dataset.block);
+  const seen = new Set();
+  const cards = document.getElementById('cards');
+  cards.innerHTML = '';
+  let matched = 0;
+
+  // make the in-iframe highlight actually visible (parent CSS can't reach the iframe)
+  if (doc && doc.head && !doc.getElementById('wf-style')){
+    const s = doc.createElement('style'); s.id = 'wf-style';
+    s.textContent = '[data-block].wf-hi{outline:2px solid #5b8bd0;outline-offset:-2px}';
+    doc.head.appendChild(s);
+  }
+
+  // grow a textarea to fit its content (no inner scrollbar, no fixed height)
+  const autosize = ta => { ta.style.height = 'auto'; ta.style.height = (ta.scrollHeight + 2) + 'px'; };
+  const previewOf = id => { const l = (bodies[id]||'').split('\n').find(s => s.trim()); return l ? l.trim() : ''; };
+
+  // open/close one card; when anchored, pin its header so the view doesn't jump
+  const setOpen = (card, open, anchor=true) => {
+    const already = card.classList.contains('open');
+    const ta = card.querySelector('textarea');
+    if (open === already){ if (open) autosize(ta); return; }
+    const before = anchor ? card.getBoundingClientRect().top : 0;
+    card.classList.toggle('open', open);
+    card.querySelector('.card-body').classList.toggle('hidden', !open);
+    if (open) autosize(ta);
+    if (anchor) cards.scrollTop += card.getBoundingClientRect().top - before;
+  };
+
+  const makeCard = (id, {orphan=false}={}) => {
+    seen.add(id);
+    const has = id in bodies; if (has && !orphan) matched++;
+    const badge = orphan ? '<span class="text-[10px] text-[#d08a5b] shrink-0">no block</span>'
+                : (has ? '<span class="text-[10px] text-[#5b8bd0] shrink-0">●</span>'
+                       : '<span class="text-[10px] text-[#d0b45b] shrink-0">no note</span>');
+    const card = document.createElement('div');
+    card.className = 'card shrink-0 rounded-xl border border-[#2b323f] bg-[#141922] overflow-hidden';
+    card.dataset.for = id;
+    card.innerHTML =
+      `<button type="button" class="card-head w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-[#182031]">
+         <span class="chev text-[#5b8bd0] text-[10px] w-3 shrink-0">▸</span>
+         <span class="text-[#5b8bd0] font-mono text-xs shrink-0">#${id}</span>
+         <span class="preview text-[10px] text-[#6b7787] truncate flex-1 min-w-0"></span>
+         ${badge}
+       </button>
+       <div class="card-body hidden border-t border-[#2b323f]">
+         <textarea class="w-full bg-[#0b0e13] text-[#e6ebf2] text-sm p-3 outline-none resize-none overflow-hidden block font-mono" placeholder="Describe #${id}…">${bodies[id]||''}</textarea>
+       </div>`;
+    const ta = card.querySelector('textarea');
+    const pv = card.querySelector('.preview');
+    pv.textContent = previewOf(id);
+    ta.addEventListener('input', ()=>{ bodies[id] = ta.value; pv.textContent = previewOf(id); autosize(ta); });
+    card.querySelector('.card-head').addEventListener('click', ()=> setOpen(card, !card.classList.contains('open')));
+    // hover card -> highlight the matching block in the iframe (no scroll — that's jarring)
+    const el = els.find(e=>e.dataset.block===id);
+    if (el){
+      card.addEventListener('mouseenter', ()=> el.classList.add('wf-hi'));
+      card.addEventListener('mouseleave', ()=> el.classList.remove('wf-hi'));
+    }
+    cards.appendChild(card);
+    return card;
+  };
+
+  // layout order first (design follows the screen), then md-only orphans
+  layoutIds.forEach(id=>{ if(!seen.has(id)) makeCard(id); });
+  order.forEach(id=>{ if(!seen.has(id)) makeCard(id, {orphan:true}); });
+
+  // click a block in the iframe -> open its card + jump it to the top, flash
+  els.forEach(el=>{
+    el.style.cursor='pointer';
+    el.addEventListener('click', ()=>{
+      const card = cards.querySelector(`[data-for="${el.dataset.block}"]`);
+      if(!card) return;
+      setOpen(card, true, false);
+      cards.scrollTop += card.getBoundingClientRect().top - cards.getBoundingClientRect().top - 8;
+      card.animate([{outline:'2px solid #5b8bd0'},{outline:'2px solid transparent'}],{duration:900});
+    });
+  });
+
+  // expand / collapse everything
+  const tog = document.getElementById('toggleall');
+  tog.onclick = ()=>{
+    const list = [...cards.children];
+    const open = list.some(c => !c.classList.contains('open'));
+    list.forEach(c => setOpen(c, open, false));
+    tog.textContent = open ? 'collapse all' : 'expand all';
+  };
+  tog.textContent = 'expand all';
+
+  document.getElementById('sub').textContent =
+    `${layoutIds.length} blocks · ${matched} documented`;
+}
+
+// --- export merged markdown ----------------------------------------------
+function exportMd(){
+  const ids = [...order]; // keep md order, append any new layout blocks
+  document.querySelectorAll('[data-for]').forEach(c=>{ const id=c.dataset.for; if(!ids.includes(id)) ids.push(id); });
+  let out = preamble + '\n\n';
+  for (const id of ids) out += `## ${id}\n${(bodies[id]||'').trim()}\n\n`;
+  const blob = new Blob([out.trimEnd()+'\n'], {type:'text/markdown'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='notes.md'; a.click();
+}
+
+// --- boot -----------------------------------------------------------------
+async function load(){
+  try{
+    const md = await fetch(mdUrl).then(r=>{ if(!r.ok) throw 0; return r.text(); });
+    parseMd(md);
+  }catch{
+    document.getElementById('sub').innerHTML =
+      '<span class="text-[#d0685b]">could not fetch '+mdUrl+' — serve the folder (see note)</span>';
+  }
+}
+document.getElementById('frame').addEventListener('load', ()=>{
+  try { build(); }
+  catch(e){ document.getElementById('sub').innerHTML =
+    '<span class="text-[#d0685b]">iframe blocked (file://). Serve the folder over http.</span>'; }
+});
+document.getElementById('export').onclick = exportMd;
+document.getElementById('reload').onclick = ()=>location.reload();
+load();
+</script>
+</body>
+</html>

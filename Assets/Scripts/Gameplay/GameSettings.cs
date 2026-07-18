@@ -15,7 +15,7 @@ namespace OsuUnity.Gameplay
 
         // Bump when the built-in defaults below change so existing installs adopt them instead of
         // masking them with stale saved PlayerPrefs (see Load).
-        private const int DefaultsVersion = 21;
+        private const int DefaultsVersion = 22;
 
         public static float MusicVolume = 0.2f;
         public static float HitSoundVolume = 0.15f;
@@ -35,6 +35,11 @@ namespace OsuUnity.Gameplay
         // Autoplay (applied on (re)start). An AutoPilot drives the cursor hands-free so a map plays
         // itself — for testing and beatmap preview. Works in both Sphere and Ortho2D (falling not yet).
         public static bool Autoplay = false;
+
+        // No-Fail (applied live). When on, HP reaching 0 never ends the session — the map plays to the
+        // end and the fail screen never shows (osu!'s NF mod). Does not touch HP drain, only the fail
+        // reaction (see GameManager). Read live so toggling mid-map takes effect immediately.
+        public static bool NoFail = false;
 
         // Cursor (applied on (re)start). CursorHitboxOsu is in osu! pixels (scales with CS like the
         // circle radius); 0 = faithful point-in-circle hit test (osu! default), opt-in above that.
@@ -197,6 +202,7 @@ namespace OsuUnity.Gameplay
         {
             public float MusicVolume, HitSoundVolume, LookSensitivity, PixelScale, ProjectionDistance, ChunkHDegrees, ChunkVDegrees;
             public bool Autoplay;
+            public bool NoFail;
             public float CursorSize, CursorHitboxOsu;
             public bool CursorTrail;
             public float CursorTrailSize, CursorTrailLength;
@@ -270,6 +276,7 @@ namespace OsuUnity.Gameplay
                 ChunkHDegrees = ChunkHDegrees,
                 ChunkVDegrees = ChunkVDegrees,
                 Autoplay = Autoplay,
+                NoFail = NoFail,
                 CursorSize = CursorSize,
                 CursorHitboxOsu = CursorHitboxOsu,
                 CursorTrail = CursorTrail,
@@ -328,6 +335,7 @@ namespace OsuUnity.Gameplay
             ChunkHDegrees = PlayerPrefs.GetFloat(Prefix + "hdeg", ChunkHDegrees);
             ChunkVDegrees = PlayerPrefs.GetFloat(Prefix + "vdeg", ChunkVDegrees);
             Autoplay = PlayerPrefs.GetInt(Prefix + "auto", Autoplay ? 1 : 0) != 0;
+            NoFail = PlayerPrefs.GetInt(Prefix + "nofail", NoFail ? 1 : 0) != 0;
             CursorSize = PlayerPrefs.GetFloat(Prefix + "cursize", CursorSize);
             CursorHitboxOsu = PlayerPrefs.GetFloat(Prefix + "curhitbox", CursorHitboxOsu);
             CursorTrail = PlayerPrefs.GetInt(Prefix + "curtrail", CursorTrail ? 1 : 0) != 0;
@@ -381,6 +389,7 @@ namespace OsuUnity.Gameplay
             PlayerPrefs.SetFloat(Prefix + "hdeg", ChunkHDegrees);
             PlayerPrefs.SetFloat(Prefix + "vdeg", ChunkVDegrees);
             PlayerPrefs.SetInt(Prefix + "auto", Autoplay ? 1 : 0);
+            PlayerPrefs.SetInt(Prefix + "nofail", NoFail ? 1 : 0);
             PlayerPrefs.SetFloat(Prefix + "cursize", CursorSize);
             PlayerPrefs.SetFloat(Prefix + "curhitbox", CursorHitboxOsu);
             PlayerPrefs.SetInt(Prefix + "curtrail", CursorTrail ? 1 : 0);
@@ -433,6 +442,7 @@ namespace OsuUnity.Gameplay
             ChunkHDegrees = _defaults.ChunkHDegrees;
             ChunkVDegrees = _defaults.ChunkVDegrees;
             Autoplay = _defaults.Autoplay;
+            NoFail = _defaults.NoFail;
             CursorSize = _defaults.CursorSize;
             CursorHitboxOsu = _defaults.CursorHitboxOsu;
             CursorTrail = _defaults.CursorTrail;

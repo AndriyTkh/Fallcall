@@ -23,7 +23,7 @@ Legend: 🔴 breaks faithfulness (fix) · 🟡 minor / cosmetic · 🟢 already 
 | 3 | Spinner **bonus spins** unscored (dead code) | 🔴 | `SpinnerObject.AccumulateSpin` |
 | 4 | Spinner **combo/partial** thresholds vs lazer | 🟡 | `SpinnerObject.Resolve` |
 | 5 | **Cursor hitbox** not adjustable + cursor small | 🔴 (feature) | `GameSettings`, `GameContext.CursorWithin` callers, `CursorController.Init` |
-| 6 | Hit windows / OD | 🟢 | — (correct, keep) |
+| 6 | Hit windows / OD | 🟢 | fixed — `Floor()-0.5` added to match lazer |
 | 7 | Note-lock ordering | 🟢 | — (correct, keep) |
 | 8 | Follow-circle radius (2.4×) | 🟢 | — (correct, keep) |
 | 9 | Slider **tick** miss breaks combo | 🟢 | — (correct, keep) |
@@ -167,13 +167,18 @@ Confirm default cursor size + hitbox range with the human (Open question in PLAN
 
 ---
 
-## 6. 🟢 Hit windows / OD mapping — correct
+## 6. 🟢 Hit windows / OD mapping — fixed (was ~0.5–1.5 ms too lenient)
 
-`DifficultyCalculator` ([DifficultyCalculator.cs:29-31](../Assets/Scripts/Beatmaps/DifficultyCalculator.cs#L29-L31)):
+`DifficultyCalculator` ([DifficultyCalculator.cs](../Assets/Scripts/Beatmaps/DifficultyCalculator.cs)):
 ```
-300: 80 - 6*OD    100: 140 - 8*OD    50: 200 - 10*OD   (ms)
+300: Floor(80 - 6*OD) - 0.5    100: Floor(140 - 8*OD) - 0.5    50: Floor(200 - 10*OD) - 0.5   (ms)
 ```
-These **match osu!stable/lazer exactly.** `Preempt` (1800/1200/450) and `FadeIn`
+The linear slopes (80/140/200 − k·OD) always matched, but the raw doubles were **too
+lenient**: osu!lazer `OsuHitWindows.SetDifficulty` stores each window as
+`Math.Floor(DifficultyRange(...)) - 0.5` (reproducing stable's 79.5/139.5/199.5 − k·OD
+integer edges), and `HitWindows.ResultFor` compares `|offset| <= window`. Without the
+`Floor()-0.5` the old code was up to ~1.5 ms loose (worst at fractional OD near .9). Now
+matches lazer; `JudgeTiming` already uses `<=`. `Preempt` (1800/1200/450) and `FadeIn`
 (1200/800/300) also match stable's AR mapping, and `CircleRadius = 54.4 - 4.48*CS` is the osu!
 formula. **Keep as-is.** Early presses outside the window are ignored (not a miss) — also
 correct osu! behaviour ([HitCircleObject.cs:72-84](../Assets/Scripts/Visual/HitCircleObject.cs#L72-L84)).

@@ -316,7 +316,7 @@ could *reach* (nerinyan) was serving junk and 404s, and the only mirror *behavin
 TLS-unreachable. Downloads had no working path either until osu.direct was added.
 
 Note this is the second time this exact shape bit us: catboy previously ignored a nerinyan-spelled
-`q` and answered with its default listing (`docs/U6-progress.md`). A `200` from a mirror is not
+`q` and answered with its default listing (`docs/progress-u6.md`). A `200` from a mirror is not
 evidence the query was honoured.
 
 ### Mirror filter/sort support — resolved (2026-07-16, osu.direct)

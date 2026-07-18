@@ -25,7 +25,7 @@ it exists to stop false starts.**
 ### 1. Preflight check (report before doing anything)
 
 1. Read `STRUCTURE.md` (intent), this file (board), `INDEX.md` (file map), and for any UI
-   block also `docs/UI-DESIGN.md` (binding UI/design principles).
+   block also `docs/guide-ui-design.md` (binding UI/design principles).
 2. Run `git status` and `git log --oneline -8`. Compare reality against **Current state**
    and the board below.
 3. Report to the human, in a short block: which blocks are `DONE`/`IN-PROGRESS`/`BLOCKED`/
@@ -120,13 +120,13 @@ merge-conflict. Then work.
   developer-placed scene `SongSelectUI` if present, else auto-spawns. **Not yet:** in-scene per-node reconcile
   of the *static chrome* (panels/top-bar/detail) — today the chrome is still code-built each run; the row
   prefab is the authoring surface this pass. Pending in-editor compile/verify (no headless path).
-- **Docs**: `STRUCTURE.md` (vision), `INDEX.md` (auto-gen), `docs/OPTIMIZATION.md`,
-  `docs/osu-leniency.md`, **`docs/UI-DESIGN.md`** (UI/design principles — binding for this wave),
+- **Docs**: `STRUCTURE.md` (vision), `INDEX.md` (auto-gen), `docs/guide-optimization.md`,
+  `docs/osu-leniency.md`, **`docs/guide-ui-design.md`** (UI/design principles — binding for this wave),
   `docs/osu-format.md` (RES1 format audit — feeds E1–E5; MD5-sidecar approach confirmed),
   **`docs/osu-api.md`** (RES2 online-API/mirror/CDN audit — binding for U6; answers auth,
   download feasibility, rate-limit topology, and the exact preview-clip sync formula).
 - **Map browser (U6)**: **pass 1 code-complete, IN-PROGRESS, unverified at runtime** — see
-  `docs/U6-progress.md` (the resume point). `UI/Browser/` holds the screen + 5 helpers; the Browse route
+  `docs/progress-u6.md` (the resume point). `UI/Browser/` holds the screen + 5 helpers; the Browse route
   now opens it; **Layout B frame** with the autoplay slot reserved but empty (**no preview this pass** —
   human call). Compiles; the "done when" (an audibly playing demo) still needs an editor run. The
   `AudioType.MPEG` → `OGGVORBIS` bug is **fixed** in both paths. Research (RES2) backs it: browser is
@@ -146,7 +146,7 @@ merge-conflict. Then work.
 Priority top-to-bottom. Statuses: `TODO` · `IN-PROGRESS (who, date)` · `BLOCKED (by X)` ·
 `DONE (date)`. `Deps` = must be `DONE` first. `Owns` = files this block may edit.
 
-**All UI blocks follow `docs/UI-DESIGN.md`.** Golden rule from it: **adopt osu!lazer's
+**All UI blocks follow `docs/guide-ui-design.md`.** Golden rule from it: **adopt osu!lazer's
 interaction *principles*, invent Fallcall's own *visual language*** — never reproduce osu!'s
 look/branding (form vs. function split, §0 of that doc).
 
@@ -192,7 +192,7 @@ promote it when the human is ready.
 ## Blocks (detail)
 
 ### U1 — UI design language / theme foundation
-Build Fallcall's **own** visual identity + a reusable widget kit, per `docs/UI-DESIGN.md`
+Build Fallcall's **own** visual identity + a reusable widget kit, per `docs/guide-ui-design.md`
 (§0 form-vs-function, §1.2 contrast, §1.6 consistency, §3 Fallcall-specific: screen-space UI,
 center-of-screen sacred). **Do not port osu!'s look** — design for the falling-geometric-space
 theme.
@@ -218,7 +218,7 @@ IMGUI remain.)
 re-inventing styling; hover/focus/contrast states are built in; UI-scale is a live setting.
 
 ### U2 — Settings overlay  _(needs U1)_
-Slide-over settings panel per `docs/UI-DESIGN.md` §2.1: openable **anywhere via a global
+Slide-over settings panel per `docs/guide-ui-design.md` §2.1: openable **anywhere via a global
 shortcut** (incl. during pause), **live-apply everything**, sidebar sections (Gameplay,
 Visuals/Camera, Audio, Skin, Input, UI), **search with match highlight**, range sliders with
 keyboard step + **per-setting reset**, and a **keybinds** section (gameplay + UI shortcuts,
@@ -229,7 +229,7 @@ settings surface and absorbed the pause menu's Ortho2D-zoom sliders.)
 live-applies and has its own reset, keybinds rebind without silent double-binding.
 
 ### U3 — Main screen + navigation shell  _(needs U1)_
-Main screen + persistent nav per `docs/UI-DESIGN.md` §1.4, §2.4: entries (Play / Settings /
+Main screen + persistent nav per `docs/guide-ui-design.md` §1.4, §2.4: entries (Play / Settings /
 Browse / Quit), **each showing its keyboard shortcut as a small hint** (fixes osu!'s
 undiscoverable-shortcut weakness); persistent toggleable **toolbar** giving the same routes;
 ambient dimmed backdrop + menu state; graceful **first-run** (no maps → point to Browse, not a
@@ -238,7 +238,7 @@ dead Play). Routes into `SongSelectUI` / settings overlay.
 shortcut hints shown; first-run has no dead ends.
 
 ### U4 — Song-select refinement  _(needs U1)_
-Bring `SongSelectUI` up to `docs/UI-DESIGN.md` §2.2: restyle with the U1 kit; **audio preview
+Bring `SongSelectUI` up to `docs/guide-ui-design.md` §2.2: restyle with the U1 kit; **audio preview
 on select** from `.osu` `[General] PreviewTime` (ms; fall back ~40% into the song when missing/
 `-1`); **filters** (star range / length / BPM) + sort; **type-to-search without focusing the
 field**; full **keyboard-only** flow (type→search, arrows→move, Enter→play, Esc→back); glance
@@ -247,7 +247,7 @@ metadata (stars, CS/AR/OD/HP, length, BPM).
 the U1 visual language.
 
 ### U5 — Online beatmap search  _(needs U4)_
-In-client search per `docs/UI-DESIGN.md` §2.3 — **no account** v1: query a mirror
+In-client search per `docs/guide-ui-design.md` §2.3 — **no account** v1: query a mirror
 (nerinyan/catboy — same source `BeatmapDownloader` already downloads from) for search results,
 show them in the **same card UI** as local (Local/Online toggle), download → auto-import through
 the existing `.osz` pipeline. Official osu! API v2 (OAuth) is a later optional add.
@@ -255,7 +255,7 @@ the existing `.osz` pipeline. Official osu! API v2 (OAuth) is a later optional a
 set, no account required.
 
 ### U6 — Map browser  _(needs U5, RES2)_
-A dedicated browse screen per `docs/UI-DESIGN.md`, backed by the API audit in **`docs/osu-api.md`
+A dedicated browse screen per `docs/guide-ui-design.md`, backed by the API audit in **`docs/osu-api.md`
 (read it first — it resolves every auth/feasibility question below)**. Two layouts, both viable:
 
 - **Layout A — column list.** osu!-style multi-column result grid: filter + scroll, each row
@@ -364,7 +364,7 @@ RES1 lands. IDs provisional.
 - **U2 (resolved 2026-07-16, human call):** settings shortcut = **Ctrl+O** (same as osu!'s), and the
   IMGUI pause-menu settings **are retired** — the overlay is the only settings surface, and the pause
   menu is exactly three routes (Continue / Restart / Quit) with the Ctrl+O hint on it.
-  _Departs from `docs/UI-DESIGN.md` §2.5, which lists a Settings entry on the pause menu; the
+  _Departs from `docs/guide-ui-design.md` §2.5, which lists a Settings entry on the pause menu; the
   shortcut + hint covers §1.4's "reachable from anywhere". Fold into §2.5 if it holds up in play._
 - **U5 (resolved 2026-07-12):** search primary = nerinyan `/search`, fallback = catboy `/api/v2/search`
   (matches the download order); both public/unauthenticated. Preview audio/cover pulled from `b.ppy.sh` /
@@ -396,7 +396,7 @@ RES1 lands. IDs provisional.
 
 ## Tips for following agents
 
-- **UI:** read `docs/UI-DESIGN.md` first; build with the U1 kit, don't re-style ad hoc; keep UI
+- **UI:** read `docs/guide-ui-design.md` first; build with the U1 kit, don't re-style ad hoc; keep UI
   **screen-space** (never on the sphere) and out of screen-center; every tunable is a setting.
 - Don't touch drawable world math directly — go through `Playfield`.
 - `Osu3DSettings` values apply on session (re)start; press **R** in play mode to re-apply.
@@ -456,7 +456,7 @@ _One line per claim/finish so parallel sessions see who's on what. Newest first.
   screen: browse state, selection, keyboard flow, download→auto-import / play handoff) + `Bootstrap.cs`
   (`State.Browsing`, **Browse route now opens the browser**, Esc → main, `PlayRequested`/`SetImported` wired),
   `SongSelectUI.FocusLocalSet` wrapper. **Compiles (human-run editor); nothing verified at runtime** — the
-  audible demo is the "done when", so the block stays claimed. Resume: `docs/U6-progress.md`. INDEX regen (55).
+  audible demo is the "done when", so the block stays claimed. Resume: `docs/progress-u6.md`. INDEX regen (55).
 - 2026-07-15 — Claimed **U6 pass 1** (opus): map browser, **no autoplay preview this pass** (human call) —
   new `UI/Browser/` (MapBrowser + View/Rows/Search/Media/Model, split small on purpose), **Layout B frame**
   with the preview slot reserved but empty; + `BeatmapDownloader.cs` (catboy search params, CDN url helpers),
@@ -528,7 +528,7 @@ _One line per claim/finish so parallel sessions see who's on what. Newest first.
   board; new open questions (E1/E2/E5). No code touched. — opus
 - 2026-07-11 — Archived the projection/gameplay/loader/video/HUD wave to
   `docs/archive/PLAN-2026-07-11.md`; reset this board to the **UI wave** (U1–U5) driven by the
-  new `docs/UI-DESIGN.md`. — opus
+  new `docs/guide-ui-design.md`. — opus
 
 ## Done log
 

@@ -454,6 +454,7 @@ namespace OsuUnity.UI
             // 0 — Gameplay
             Header(0);
             AddToggle(0, "Autoplay (map plays itself)", true, false, () => GameSettings.Autoplay, v => GameSettings.Autoplay = v);
+            AddToggle(0, "No Fail (HP can't end the map)", false, false, () => GameSettings.NoFail, v => GameSettings.NoFail = v);
             AddSlider(0, "Follow-point size", false, 0.3f, 3f, 1f, () => GameSettings.FollowPointScale, v => GameSettings.FollowPointScale = v);
             AddToggle(0, "Follow points", true, true, () => GameSettings.ShowFollowPoints, v => GameSettings.ShowFollowPoints = v);
             AddToggle(0, "Default follow-point arrow", true, false, () => GameSettings.DefaultFollowPoint, v => GameSettings.DefaultFollowPoint = v);
